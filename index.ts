@@ -253,17 +253,12 @@ const createWindow = async (): Promise<void> => {
 
     mainWindow.on('close', (event): void => {
         const traySettings = store.get('traySettings');
-        console.log('[DEBUG] Close event - traySettings:', traySettings);
-        console.log('[DEBUG] minimizeToTray value:', traySettings?.minimizeToTray);
-
         if (traySettings?.minimizeToTray) {
-            console.log('[DEBUG] Minimizing to tray');
             event.preventDefault();
             mainWindow!.hide();
             return;
         }
 
-        console.log('[DEBUG] Not minimizing to tray, closing app');
         try {
             void close();
         } catch {
@@ -327,12 +322,9 @@ app.on('ready', async (): Promise<void> => {
         console.error('[ERROR] Failed to start window monitoring:', error);
     }
     
-    // Temporarily enable DevTools for debugging
-    mainWindow!.webContents.openDevTools();
-
-    // if (process.env.NODE_ENV === 'development') {
-    //     mainWindow!.webContents.openDevTools();
-    // }
+    if (process.env.NODE_ENV === 'development') {
+        mainWindow!.webContents.openDevTools();
+    }
 });
 
 app.on('activate', async (): Promise<void> => {
