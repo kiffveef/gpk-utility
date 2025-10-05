@@ -205,7 +205,7 @@ const createWindow = async (): Promise<void> => {
             nodeIntegration: false,
             contextIsolation: true,
         },
-        show: !store.get('backgroundStart'),
+        show: !store.get('traySettings')?.backgroundStart,
     };
     
     if (windowBounds.x !== undefined) {
@@ -252,21 +252,23 @@ const createWindow = async (): Promise<void> => {
     });
 
     mainWindow.on('close', (event): void => {
-        if (store.get('minimizeToTray')) {
+        const traySettings = store.get('traySettings');
+        if (traySettings?.minimizeToTray) {
             event.preventDefault();
             mainWindow!.hide();
             return;
         }
-        
+
         try {
             void close();
         } catch {
             // Ignored
         }
     });
-    
+
     mainWindow.on('minimize', (): void => {
-        if (store.get('minimizeToTray')) {
+        const traySettings = store.get('traySettings');
+        if (traySettings?.minimizeToTray) {
             mainWindow!.hide();
         }
     });
@@ -279,10 +281,11 @@ app.setName(translate('header.title'));
 
 app.on('window-all-closed', (): void => {
     if (process.platform !== 'darwin') {
-        if (store.get('minimizeToTray')) {
+        const traySettings = store.get('traySettings');
+        if (traySettings?.minimizeToTray) {
             return;
         }
-        
+
         try{
             void close();
         } catch {
