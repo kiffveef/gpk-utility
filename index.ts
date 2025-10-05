@@ -327,9 +327,12 @@ app.on('ready', async (): Promise<void> => {
         console.error('[ERROR] Failed to start window monitoring:', error);
     }
     
-    if (process.env.NODE_ENV === 'development') {
-        mainWindow!.webContents.openDevTools();
-    }
+    // Temporarily enable DevTools for debugging
+    mainWindow!.webContents.openDevTools();
+
+    // if (process.env.NODE_ENV === 'development') {
+    //     mainWindow!.webContents.openDevTools();
+    // }
 });
 
 app.on('activate', async (): Promise<void> => {
