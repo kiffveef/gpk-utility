@@ -51,6 +51,7 @@ const store = new Store<StoreSchema>({
             minimizeToTray: true,
             backgroundStart: false
         },
+        openAtLogin: false,
         windowBounds: { width: 1280, height: 800 },
         locale: 'en',
         notificationApiEndpoint: 'https://getnotifications-svtx62766a-uc.a.run.app'
@@ -296,6 +297,13 @@ app.on('window-all-closed', (): void => {
 });
 
 app.on('ready', async (): Promise<void> => {
+    // Set login item settings based on stored preference
+    const openAtLogin = store.get('openAtLogin') || false;
+    app.setLoginItemSettings({
+        openAtLogin: openAtLogin,
+        openAsHidden: false
+    });
+
     createTray();
     await createWindow();
     

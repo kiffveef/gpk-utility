@@ -108,6 +108,7 @@ const enMessages: LocaleMessages = {
     appSettings: 'Application Settings',
     minimizeToTray: 'Minimize to Tray When Closed',
     startInTray: 'Start Minimized to Tray',
+    openAtLogin: 'Launch at Startup',
     language: 'Language',
     selectLanguage: 'Select Language',
     import: 'Import Settings',

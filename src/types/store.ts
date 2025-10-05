@@ -29,6 +29,7 @@ export interface StoreSchema {
     pomodoroDesktopNotificationsSettings: Record<string, boolean>;
     savedNotifications: NotificationData[];
     traySettings: TraySettings;
+    openAtLogin: boolean;
     windowBounds: WindowBounds;
     locale: string;
     notificationApiEndpoint: string;

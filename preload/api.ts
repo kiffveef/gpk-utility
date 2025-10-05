@@ -271,11 +271,17 @@ export const exposeAPI = (): void => {
             return await saveStoreSetting('traySettings', { ...cachedStoreSettings.traySettings, ...settings });
         },
         loadTraySettings: async (): Promise<{ success: boolean; minimizeToTray?: boolean; backgroundStart?: boolean }> => {
-            return { 
-                success: true, 
+            return {
+                success: true,
                 minimizeToTray: cachedStoreSettings.traySettings?.minimizeToTray,
                 backgroundStart: cachedStoreSettings.traySettings?.backgroundStart
             };
+        },
+        saveOpenAtLogin: async (enabled: boolean): Promise<CommandResult> => {
+            return await ipcRenderer.invoke('saveOpenAtLogin', enabled);
+        },
+        loadOpenAtLogin: async (): Promise<{ success: boolean; enabled?: boolean }> => {
+            return await ipcRenderer.invoke('loadOpenAtLogin');
         },
         setAppLocale: async (locale: string): Promise<CommandResult> => {
             return await saveStoreSetting('locale', locale);
