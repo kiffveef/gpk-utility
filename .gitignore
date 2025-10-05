@@ -6,7 +6,6 @@ yarn.lock
 /public/build/
 .github/*
 !.github/workflows/
-package-lock.json
 .claude/
 dist-electron/
 docs/
