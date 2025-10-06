@@ -8,6 +8,9 @@ import { parseDeviceId } from './communication';
 let deviceHealthMonitor: NodeJS.Timeout | null = null;
 const deviceHealthCheckInterval = 10000; // Check every 10 seconds
 
+// Track previous device states to avoid unnecessary UI updates
+const previousDeviceStates = new Map<string, boolean>();
+
 // Dependency injection interfaces  
 interface DeviceHealthDependencies {
     deviceStatusMap: Record<string, DeviceStatus>;
@@ -89,9 +92,11 @@ export const checkDeviceHealth = async (): Promise<void> => {
                     // Ignore cleanup errors - device is being disconnected
                 }
                 hidDeviceInstances[deviceId] = null;
-                
-                // Notify UI about disconnection
-                if (mainWindow) {
+
+                // Notify UI about disconnection (only if state changed)
+                const previousState = previousDeviceStates.get(deviceId);
+                if (mainWindow && previousState !== false) {
+                    previousDeviceStates.set(deviceId, false);
                     mainWindow.webContents.send("deviceConnectionStateChanged", {
                         deviceId: deviceId,
                         connected: false,
@@ -119,9 +124,11 @@ export const checkDeviceHealth = async (): Promise<void> => {
                             }
                         } else {
                             deviceStatus.connected = false;
-                            
-                            // Notify UI about disconnection
-                            if (mainWindow) {
+
+                            // Notify UI about disconnection (only if state changed)
+                            const previousState = previousDeviceStates.get(deviceId);
+                            if (mainWindow && previousState !== false) {
+                                previousDeviceStates.set(deviceId, false);
                                 mainWindow.webContents.send("deviceConnectionStateChanged", {
                                     deviceId: deviceId,
                                     connected: false,

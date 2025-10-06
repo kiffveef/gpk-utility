@@ -207,6 +207,7 @@ const createWindow = async (): Promise<void> => {
             contextIsolation: true,
         },
         show: !store.get('traySettings')?.backgroundStart,
+        backgroundColor: '#f0f0f0', // Prevent white flash
     };
     
     if (windowBounds.x !== undefined) {
