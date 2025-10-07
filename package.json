@@ -72,6 +72,7 @@
     "appId": "app.darakuneko.gpk_utility",
     "afterSign": "./dist-electron/notarize.cjs",
     "npmRebuild": false,
+    "publish": null,
     "files": [
       "dist-electron/**/*",
       "icons/*",
