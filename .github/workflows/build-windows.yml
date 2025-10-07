@@ -30,6 +30,8 @@ jobs:
           Copy-Item -Path dist/* -Destination dist-electron/ -Recurse
           npx electron-builder -w
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
