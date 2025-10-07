@@ -126,11 +126,12 @@ export const checkDeviceHealth = async (): Promise<void> => {
                                 deviceStatus.connected = true;
 
                                 // Notify UI about reconnection (only if state changed)
-                                const previousState = previousDeviceStates.get(deviceId);
+                                // Use newDeviceId for state tracking to match the actual device instance
+                                const previousState = previousDeviceStates.get(newDeviceId);
                                 if (mainWindow && previousState === false) {
-                                    previousDeviceStates.set(deviceId, true);
+                                    previousDeviceStates.set(newDeviceId, true);
                                     mainWindow.webContents.send("deviceConnectionStateChanged", {
-                                        deviceId: deviceId,
+                                        deviceId: newDeviceId,
                                         connected: true,
                                         gpkRCVersion: deviceStatus.gpkRCVersion || 0,
                                         deviceType: deviceStatus.deviceType || DeviceType.KEYBOARD,
@@ -138,7 +139,12 @@ export const checkDeviceHealth = async (): Promise<void> => {
                                     });
                                 } else if (previousState === undefined) {
                                     // 初回検出時は状態を記録するだけ
-                                    previousDeviceStates.set(deviceId, true);
+                                    previousDeviceStates.set(newDeviceId, true);
+                                }
+
+                                // Clean up old deviceId state if different
+                                if (newDeviceId !== deviceId) {
+                                    previousDeviceStates.delete(deviceId);
                                 }
                             }
                         } else {
