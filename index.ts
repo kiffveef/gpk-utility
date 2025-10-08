@@ -41,6 +41,7 @@ interface PomodoroDeviceInfo {
 // Global variables
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let windowMonitoringTimer: NodeJS.Timeout | null = null;
 
 // Initialize electron-store
 const store = new Store<StoreSchema>({
@@ -171,13 +172,13 @@ const createTray = (): void => {
     const iconPath = path.join(__dirname, '..', 'icons', '16x16.png');
     const icon = nativeImage.createFromPath(iconPath);
     tray = new Tray(icon);
-    
+
     // Set default context menu immediately
     const contextMenu = Menu.buildFromTemplate(createTrayMenuTemplate());
     tray.setContextMenu(contextMenu);
-    
+
     tray.setToolTip(translate('header.title'));
-    
+
     // Set up click handler
     tray.on('click', async (): Promise<void> => {
         if (mainWindow) {
@@ -190,6 +191,52 @@ const createTray = (): void => {
             await createWindow();
         }
     });
+};
+
+// Window monitoring for automatic layer switching
+const monitorActiveWindow = async (): Promise<void> => {
+    try {
+        await startWindowMonitoring({
+            getActiveWindow: async (): Promise<ActiveWindowResult> => {
+                const result = await ActiveWindow.getActiveWindow();
+                return {
+                    title: result.title,
+                    application: result.application,
+                    name: result.application,
+                    executableName: result.application
+                };
+            }
+        });
+    } catch (error) {
+        // Silently ignore errors from window monitoring
+        // This is expected when accessing system-level applications
+    }
+};
+
+// Start window monitoring with cleanup
+const startContinuousWindowMonitoring = (): void => {
+    // Stop existing monitoring if any
+    if (windowMonitoringTimer) {
+        clearInterval(windowMonitoringTimer);
+    }
+
+    const intervalMs = 500; // 500ms interval for responsive layer switching
+
+    // Initial check
+    void monitorActiveWindow();
+
+    // Set up interval for continuous monitoring
+    windowMonitoringTimer = setInterval((): void => {
+        void monitorActiveWindow();
+    }, intervalMs);
+};
+
+// Stop window monitoring
+const stopContinuousWindowMonitoring = (): void => {
+    if (windowMonitoringTimer) {
+        clearInterval(windowMonitoringTimer);
+        windowMonitoringTimer = null;
+    }
 };
 
 const createWindow = async (): Promise<void> => {
@@ -300,6 +347,10 @@ app.on('window-all-closed', (): void => {
         } catch {
             // Ignored
         }
+
+        // Clean up window monitoring
+        stopContinuousWindowMonitoring();
+
         app.quit();
     }
 });
@@ -314,30 +365,16 @@ app.on('ready', async (): Promise<void> => {
 
     createTray();
     await createWindow();
-    
+
     // Setup IPC handlers and events
     setupIpcHandlers();
     if (tray) {
         setupIpcEvents(activePomodoroDevices, tray, createTrayMenuTemplate as () => Electron.MenuItemConstructorOptions[]);
     }
-    
+
     // Start window monitoring for automatic layer switching
-    try {
-        void startWindowMonitoring({
-            getActiveWindow: async (): Promise<ActiveWindowResult> => {
-                const result = await ActiveWindow.getActiveWindow();
-                return {
-                    title: result.title,
-                    application: result.application,
-                    name: result.application,
-                    executableName: result.application
-                };
-            }
-        });
-    } catch (error) {
-        console.error('[ERROR] Failed to start window monitoring:', error);
-    }
-    
+    startContinuousWindowMonitoring();
+
     if (process.env.NODE_ENV === 'development') {
         mainWindow!.webContents.openDevTools();
     }
@@ -345,6 +382,11 @@ app.on('ready', async (): Promise<void> => {
 
 app.on('activate', async (): Promise<void> => {
     if (mainWindow === null) await createWindow();
+});
+
+app.on('before-quit', (): void => {
+    // Clean up window monitoring timer
+    stopContinuousWindowMonitoring();
 });
 
 // Export handleDeviceDisconnect for use by IPC handlers
