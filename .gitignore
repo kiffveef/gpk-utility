@@ -4,8 +4,8 @@ node_modules
 /dist
 yarn.lock
 /public/build/
-.github
-package-lock.json
+.github/*
+!.github/workflows/
 .claude/
 dist-electron/
 docs/
