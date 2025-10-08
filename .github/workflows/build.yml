@@ -1,0 +1,122 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches:
+      - main
+      - fix/**
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type check
+        run: npm run type-check
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build application
+        run: |
+          Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path dist-electron -Recurse -Force -ErrorAction SilentlyContinue
+          npm run check
+          npx vite build
+          New-Item -ItemType Directory -Force -Path dist-electron
+          Copy-Item -Path dist/* -Destination dist-electron/ -Recurse
+        shell: pwsh
+
+      - name: Build Windows installer
+        run: npx electron-builder -w
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+          retention-days: 30
+
+  build-multiplatform:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          Remove-Item -Path dist -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path dist-electron -Recurse -Force -ErrorAction SilentlyContinue
+          npm run check
+          npx vite build
+          New-Item -ItemType Directory -Force -Path dist-electron
+          Copy-Item -Path dist/* -Destination dist-electron/ -Recurse
+          npx electron-builder -w
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build for macOS
+        if: matrix.os == 'macos-latest'
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build for Linux
+        if: matrix.os == 'linux-latest'
+        run: npm run dist:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpk-utility-windows
+          path: dist/*.exe
+
+      - name: Upload macOS artifacts
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpk-utility-macos
+          path: dist/*.dmg
+
+      - name: Upload Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpk-utility-linux
+          path: dist/*.AppImage
