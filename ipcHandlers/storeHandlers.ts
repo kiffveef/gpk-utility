@@ -106,15 +106,19 @@ export const setupStoreHandlers = (): void => {
     // Tray settings saving
     ipcMain.handle('saveTraySettings', async (event, settings: { minimizeToTray?: boolean; backgroundStart?: boolean }): Promise<SaveResult> => {
         try {
-            // Save settings to electron-store
-            if (settings.minimizeToTray !== undefined) {
-                store.set('minimizeToTray', settings.minimizeToTray);
-            }
-            
-            if (settings.backgroundStart !== undefined) {
-                store.set('backgroundStart', settings.backgroundStart);
-            }
-            
+            // Get current traySettings object
+            const currentTraySettings = store.get('traySettings') || { minimizeToTray: true, backgroundStart: false };
+
+            // Update only the provided fields
+            const updatedTraySettings = {
+                ...currentTraySettings,
+                ...(settings.minimizeToTray !== undefined && { minimizeToTray: settings.minimizeToTray }),
+                ...(settings.backgroundStart !== undefined && { backgroundStart: settings.backgroundStart })
+            };
+
+            // Save as a single traySettings object
+            store.set('traySettings', updatedTraySettings);
+
             return { success: true };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -124,13 +128,12 @@ export const setupStoreHandlers = (): void => {
     // Tray settings loading
     ipcMain.handle('loadTraySettings', async (_event): Promise<SaveResult & { minimizeToTray?: boolean; backgroundStart?: boolean }> => {
         try {
-            // Load settings from electron-store
-            const minimizeToTray = store.get('minimizeToTray');
-            const backgroundStart = store.get('backgroundStart');
-            return { 
-                success: true, 
-                ...(minimizeToTray !== undefined && { minimizeToTray }),
-                ...(backgroundStart !== undefined && { backgroundStart })
+            // Load traySettings object from electron-store
+            const traySettings = store.get('traySettings') || { minimizeToTray: true, backgroundStart: false };
+            return {
+                success: true,
+                minimizeToTray: traySettings.minimizeToTray,
+                backgroundStart: traySettings.backgroundStart
             };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -246,10 +249,7 @@ export const setupStoreHandlers = (): void => {
                 oledSettings: store.get('oledSettings') || {},
                 pomodoroDesktopNotificationsSettings: store.get('pomodoroDesktopNotificationsSettings') || {},
                 savedNotifications: store.get('savedNotifications') || [],
-                traySettings: {
-                    minimizeToTray: store.get('minimizeToTray'),
-                    backgroundStart: store.get('backgroundStart')
-                },
+                traySettings: store.get('traySettings') || { minimizeToTray: true, backgroundStart: false },
                 locale: store.get('locale') || 'en'
             };
             

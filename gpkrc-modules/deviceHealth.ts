@@ -8,6 +8,9 @@ import { parseDeviceId } from './communication';
 let deviceHealthMonitor: NodeJS.Timeout | null = null;
 const deviceHealthCheckInterval = 10000; // Check every 10 seconds
 
+// Track previous device states to avoid unnecessary UI updates
+const previousDeviceStates = new Map<string, boolean>();
+
 // Dependency injection interfaces  
 interface DeviceHealthDependencies {
     deviceStatusMap: Record<string, DeviceStatus>;
@@ -89,9 +92,11 @@ export const checkDeviceHealth = async (): Promise<void> => {
                     // Ignore cleanup errors - device is being disconnected
                 }
                 hidDeviceInstances[deviceId] = null;
-                
-                // Notify UI about disconnection
-                if (mainWindow) {
+
+                // Notify UI about disconnection (only if state changed)
+                const previousState = previousDeviceStates.get(deviceId);
+                if (mainWindow && previousState !== false && previousState !== undefined) {
+                    previousDeviceStates.set(deviceId, false);
                     mainWindow.webContents.send("deviceConnectionStateChanged", {
                         deviceId: deviceId,
                         connected: false,
@@ -99,6 +104,9 @@ export const checkDeviceHealth = async (): Promise<void> => {
                         deviceType: deviceStatus.deviceType || DeviceType.KEYBOARD,
                         config: deviceStatus.config || {}
                     });
+                } else if (previousState === undefined) {
+                    // 初回検出時は状態を記録するだけ
+                    previousDeviceStates.set(deviceId, false);
                 }
             }
             
@@ -113,15 +121,39 @@ export const checkDeviceHealth = async (): Promise<void> => {
                         const foundDevice = await getKBD(deviceInfo);
                         if (foundDevice) {
                             const newDeviceId = await addKbd(deviceInfo);
-                            
+
                             if (hidDeviceInstances[newDeviceId]) {
                                 deviceStatus.connected = true;
+
+                                // Notify UI about reconnection (only if state changed)
+                                // Use newDeviceId for state tracking to match the actual device instance
+                                const previousState = previousDeviceStates.get(newDeviceId);
+                                if (mainWindow && previousState === false) {
+                                    previousDeviceStates.set(newDeviceId, true);
+                                    mainWindow.webContents.send("deviceConnectionStateChanged", {
+                                        deviceId: newDeviceId,
+                                        connected: true,
+                                        gpkRCVersion: deviceStatus.gpkRCVersion || 0,
+                                        deviceType: deviceStatus.deviceType || DeviceType.KEYBOARD,
+                                        config: deviceStatus.config || {}
+                                    });
+                                } else if (previousState === undefined) {
+                                    // 初回検出時は状態を記録するだけ
+                                    previousDeviceStates.set(newDeviceId, true);
+                                }
+
+                                // Clean up old deviceId state if different
+                                if (newDeviceId !== deviceId) {
+                                    previousDeviceStates.delete(deviceId);
+                                }
                             }
                         } else {
                             deviceStatus.connected = false;
-                            
-                            // Notify UI about disconnection
-                            if (mainWindow) {
+
+                            // Notify UI about disconnection (only if state changed)
+                            const previousState = previousDeviceStates.get(deviceId);
+                            if (mainWindow && previousState !== false && previousState !== undefined) {
+                                previousDeviceStates.set(deviceId, false);
                                 mainWindow.webContents.send("deviceConnectionStateChanged", {
                                     deviceId: deviceId,
                                     connected: false,
@@ -129,6 +161,9 @@ export const checkDeviceHealth = async (): Promise<void> => {
                                     deviceType: deviceStatus.deviceType || DeviceType.KEYBOARD,
                                     config: deviceStatus.config || {}
                                 });
+                            } else if (previousState === undefined) {
+                                // 初回検出時は状態を記録するだけ
+                                previousDeviceStates.set(deviceId, false);
                             }
                         }
                     }
