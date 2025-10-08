@@ -15,10 +15,11 @@ import type { StoreSchema } from '../src/types/store';
 
 import { DeviceType, stringToDeviceType } from './deviceTypes';
 import { commandId, actionId, encodeDeviceId, DEFAULT_USAGE, PACKET_PADDING } from './communication';
-import { 
-    startDeviceHealthMonitoring, 
+import {
+    startDeviceHealthMonitoring,
     isDeviceHealthMonitoringActive,
-    injectDeviceHealthDependencies
+    injectDeviceHealthDependencies,
+    cleanupDeviceStateTracking
 } from './deviceHealth';
 import { injectOledDependencies, writeTimeToOled } from './oledDisplay';
 import { injectPomodoroDependencies, receivePomodoroConfig, receivePomodoroActiveStatus } from './pomodoroConfig';
@@ -303,7 +304,10 @@ const start = async (device: GPKDevice): Promise<string> => {
                 
                 // Clean up layer tracking
                 cleanupDeviceLayerTracking(newId!);
-                
+
+                // Clean up device state tracking
+                cleanupDeviceStateTracking(newId!);
+
                 // Notify UI about device disconnection
                 if ((global as { mainWindow?: ElectronWindow }).mainWindow) {
                     (global as { mainWindow?: ElectronWindow }).mainWindow!.webContents.send("deviceConnectionStateChanged", {
@@ -580,6 +584,9 @@ const stop = async (device: GPKDevice): Promise<void> => {
     // Clean up layer tracking
     // Use imported cleanupDeviceLayerTracking function
     cleanupDeviceLayerTracking(id);
+
+    // Clean up device state tracking
+    cleanupDeviceStateTracking(id);
 }
 
 const _close = (id: string): boolean => {

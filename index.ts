@@ -28,6 +28,11 @@ if(process.platform==='linux') {
     app.commandLine.appendArgument("--no-sandbox");
 }
 
+// Memory optimization settings
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // Limit to 512MB
+app.commandLine.appendSwitch('disable-renderer-backgrounding'); // Keep renderer active
+app.commandLine.appendSwitch('disable-background-timer-throttling'); // Prevent timer throttling
+
 // ActiveWindow is already initialized as an instance, no need to call initialize()
 
 interface PomodoroDeviceInfo {
@@ -273,6 +278,11 @@ const createWindow = async (): Promise<void> => {
         if (traySettings?.minimizeToTray) {
             mainWindow!.hide();
         }
+    });
+
+    // Clean up event listeners when window is destroyed
+    mainWindow.once('closed', (): void => {
+        mainWindow = null;
     });
 };
 

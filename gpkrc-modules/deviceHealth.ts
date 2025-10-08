@@ -182,3 +182,10 @@ export const checkDeviceHealth = async (): Promise<void> => {
 export const isDeviceHealthMonitoringActive = (): boolean => {
     return deviceHealthMonitor !== null;
 };
+
+// Function to clean up device state tracking
+export const cleanupDeviceStateTracking = (deviceId: string): void => {
+    if (previousDeviceStates.has(deviceId)) {
+        previousDeviceStates.delete(deviceId);
+    }
+};
