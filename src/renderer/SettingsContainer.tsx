@@ -33,6 +33,7 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
         minimizeToTray: true,
         backgroundStart: false
     })
+    const [openAtLogin, setOpenAtLogin] = useState(false)
     const [pollingInterval, setPollingInterval] = useState((): number => {
         const setting = window.api.getStoreSetting('pollingInterval');
         return typeof setting === 'number' ? setting : 1000;
@@ -66,8 +67,20 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                 console.error("Failed to load tray settings:", error);
             }
         };
-        
+
+        const loadOpenAtLogin = async (): Promise<void> => {
+            try {
+                const result = await window.api.loadOpenAtLogin();
+                if (result && result.success) {
+                    setOpenAtLogin(result.enabled ?? false);
+                }
+            } catch (error) {
+                console.error("Failed to load startup settings:", error);
+            }
+        };
+
         void loadTraySettings();
+        void loadOpenAtLogin();
     }, []);
     
     // Set active tab on initial display or when connected devices change
@@ -207,6 +220,19 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
         await window.api.exportFile()
         closeMenu()
     }
+
+    // Startup setting change handler
+    const handleOpenAtLoginChange = async (value: boolean): Promise<void> => {
+        try {
+            // Update local state
+            setOpenAtLogin(value);
+
+            // Save to backend
+            await window.api.saveOpenAtLogin(value);
+        } catch (error) {
+            console.error("Failed to save startup setting:", error);
+        }
+    };
 
     // Tray setting change handler
     const handleTraySettingChange = async (key: string, value: boolean): Promise<void> => {
@@ -430,12 +456,19 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                             >
                                 {t('settings.minimizeToTray')}
                             </MenuItem>
-                            <MenuItem 
-                                isToggle={true} 
+                            <MenuItem
+                                isToggle={true}
                                 isChecked={traySettings.backgroundStart}
                                 onClick={(): Promise<void> => handleTraySettingChange('backgroundStart', !traySettings.backgroundStart)}
                             >
                                 {t('settings.startInTray')}
+                            </MenuItem>
+                            <MenuItem
+                                isToggle={true}
+                                isChecked={openAtLogin}
+                                onClick={(): Promise<void> => handleOpenAtLoginChange(!openAtLogin)}
+                            >
+                                {t('settings.openAtLogin')}
                             </MenuItem>
                             <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                             <MenuItem onClick={handleShowUpdatesNotifications}>{t('updatesNotification.title')}</MenuItem>

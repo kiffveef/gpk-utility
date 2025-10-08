@@ -137,6 +137,44 @@ export const setupStoreHandlers = (): void => {
         }
     });
 
+    // Startup settings saving
+    ipcMain.handle('saveOpenAtLogin', async (event, enabled: boolean): Promise<SaveResult> => {
+        try {
+            const { app } = await import('electron');
+
+            // Save to store
+            store.set('openAtLogin', enabled);
+
+            // Apply to system
+            app.setLoginItemSettings({
+                openAtLogin: enabled,
+                openAsHidden: false
+            });
+
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    });
+
+    // Startup settings loading
+    ipcMain.handle('loadOpenAtLogin', async (_event): Promise<SaveResult & { enabled?: boolean }> => {
+        try {
+            const { app } = await import('electron');
+
+            // Get from system settings
+            const loginItemSettings = app.getLoginItemSettings();
+            const enabled = loginItemSettings.openAtLogin;
+
+            // Sync with store
+            store.set('openAtLogin', enabled);
+
+            return { success: true, enabled };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    });
+
     // Window position and size saving
     ipcMain.handle('saveWindowBounds', async (event, bounds: { width: number; height: number; x?: number; y?: number }): Promise<SaveResult> => {
         try {

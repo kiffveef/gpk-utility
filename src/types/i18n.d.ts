@@ -109,6 +109,7 @@ export interface LocaleMessages {
     appSettings: string;
     minimizeToTray: string;
     startInTray: string;
+    openAtLogin: string;
     language: string;
     selectLanguage: string;
     import: string;
