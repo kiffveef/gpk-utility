@@ -29,9 +29,7 @@ if(process.platform==='linux') {
 }
 
 // Memory optimization settings
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // Limit to 512MB
-app.commandLine.appendSwitch('disable-renderer-backgrounding'); // Keep renderer active
-app.commandLine.appendSwitch('disable-background-timer-throttling'); // Prevent timer throttling
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512'); // Limit to 512MB for long-running processes
 
 // ActiveWindow is already initialized as an instance, no need to call initialize()
 
@@ -207,7 +205,6 @@ const createWindow = async (): Promise<void> => {
         icon: `${__dirname}/../icons/256x256.png`,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
-            backgroundThrottling: false,
             nodeIntegration: false,
             contextIsolation: true,
         },
