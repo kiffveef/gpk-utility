@@ -108,6 +108,7 @@ const jaMessages: LocaleMessages = {
     appSettings: 'アプリケーション設定',
     minimizeToTray: '閉じるとトレイに最小化',
     startInTray: 'トレイに最小化した状態で起動',
+    openAtLogin: 'スタートアップに登録',
     language: '言語',
     selectLanguage: '言語を選択',
     import: '設定をインポート',

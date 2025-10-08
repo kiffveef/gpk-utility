@@ -75,6 +75,8 @@ declare global {
       getCachedNotifications: () => Promise<Array<{ title: string; body: string; publishedAt: { _seconds: number } }>>;
       loadTraySettings: () => Promise<{ success: boolean; minimizeToTray?: boolean; backgroundStart?: boolean }>;
       saveTraySettings: (settings: { minimizeToTray?: boolean; backgroundStart?: boolean }) => Promise<{ success: boolean; error?: string }>;
+      loadOpenAtLogin: () => Promise<{ success: boolean; enabled?: boolean }>;
+      saveOpenAtLogin: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
       
       // Window monitoring
       getActiveWindows: () => Promise<ActiveWindowResult[]>;
