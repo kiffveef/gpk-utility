@@ -207,7 +207,7 @@ const monitorActiveWindow = async (): Promise<void> => {
                 };
             }
         });
-    } catch (error) {
+    } catch {
         // Silently ignore errors from window monitoring
         // This is expected when accessing system-level applications
     }
