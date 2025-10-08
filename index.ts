@@ -314,30 +314,44 @@ app.on('ready', async (): Promise<void> => {
 
     createTray();
     await createWindow();
-    
+
     // Setup IPC handlers and events
     setupIpcHandlers();
     if (tray) {
         setupIpcEvents(activePomodoroDevices, tray, createTrayMenuTemplate as () => Electron.MenuItemConstructorOptions[]);
     }
-    
+
     // Start window monitoring for automatic layer switching
-    try {
-        void startWindowMonitoring({
-            getActiveWindow: async (): Promise<ActiveWindowResult> => {
-                const result = await ActiveWindow.getActiveWindow();
-                return {
-                    title: result.title,
-                    application: result.application,
-                    name: result.application,
-                    executableName: result.application
-                };
-            }
-        });
-    } catch (error) {
-        console.error('[ERROR] Failed to start window monitoring:', error);
-    }
-    
+    // Poll active window every 500ms for faster response
+    const windowMonitoringInterval = 500; // 500ms interval for responsive layer switching
+
+    const monitorActiveWindow = async (): Promise<void> => {
+        try {
+            await startWindowMonitoring({
+                getActiveWindow: async (): Promise<ActiveWindowResult> => {
+                    const result = await ActiveWindow.getActiveWindow();
+                    return {
+                        title: result.title,
+                        application: result.application,
+                        name: result.application,
+                        executableName: result.application
+                    };
+                }
+            });
+        } catch (error) {
+            // Silently ignore errors from window monitoring
+            // This is expected when accessing system-level applications
+        }
+    };
+
+    // Initial check
+    void monitorActiveWindow();
+
+    // Set up interval for continuous monitoring
+    setInterval((): void => {
+        void monitorActiveWindow();
+    }, windowMonitoringInterval);
+
     if (process.env.NODE_ENV === 'development') {
         mainWindow!.webContents.openDevTools();
     }
