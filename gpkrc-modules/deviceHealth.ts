@@ -44,7 +44,11 @@ export const startDeviceHealthMonitoring = (): void => {
     }
     
     deviceHealthMonitor = setInterval(async (): Promise<void> => {
-        await checkDeviceHealth();
+        try {
+            await checkDeviceHealth();
+        } catch (error) {
+            console.error('[ERROR] checkDeviceHealth failed:', error);
+        }
     }, deviceHealthCheckInterval);
 };
 

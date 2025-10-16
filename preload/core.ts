@@ -64,7 +64,11 @@ export const startKeyboardPolling = (keyboardSendLoop: () => Promise<void>): voi
     
     // Set up interval using the current polling interval setting
     keyboardPollingInterval = setInterval(async (): Promise<void> => {
-        await keyboardSendLoop();
+        try {
+            await keyboardSendLoop();
+        } catch (error) {
+            console.error('[ERROR] keyboardSendLoop failed:', error);
+        }
     }, interval);
 };
 
@@ -78,7 +82,11 @@ export const startWindowMonitoring = (startWindowMonitoringCommand: () => Promis
     
     // Set up interval for regular execution
     windowMonitoringInterval = setInterval(async (): Promise<void> => {
-        await startWindowMonitoringCommand();
+        try {
+            await startWindowMonitoringCommand();
+        } catch (error) {
+            console.error('[ERROR] startWindowMonitoringCommand failed:', error);
+        }
     }, interval);
 };
 
