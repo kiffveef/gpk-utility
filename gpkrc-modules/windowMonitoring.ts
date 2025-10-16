@@ -84,7 +84,11 @@ export const startWindowMonitoring = async (ActiveWindow: ActiveWindowModule): P
         }
         
         // Always switch layers based on active application
-        void checkAndSwitchLayer(appName);
+        try {
+            await checkAndSwitchLayer(appName);
+        } catch (layerSwitchError) {
+            console.error('[ERROR] Error in layer switching:', layerSwitchError);
+        }
     } catch (error) {
         // NOTE: This error can occur when accessing applications that reside in the system tray
         // or when the active window API cannot access certain system-level applications.
@@ -96,61 +100,57 @@ export const startWindowMonitoring = async (ActiveWindow: ActiveWindowModule): P
 // Switch layers based on active application
 export const checkAndSwitchLayer = async (appName: string): Promise<void> => {
     if (!appName || !dependencies) return;
-    
+
     const { deviceStatusMap, settingsStore, writeCommand } = dependencies;
-    
+
     if (!settingsStore) return;
-    
-    Object.keys(deviceStatusMap).forEach((id): void => {
+
+    for (const id of Object.keys(deviceStatusMap)) {
         const device = deviceStatusMap[id] as DeviceStatus;
         if (!device || !device.connected) {
-            return;
+            continue;
         }
-    
+
         const autoLayerSettings: AutoLayerSettings = settingsStore.get('autoLayerSettings') || {};
         const settings = autoLayerSettings[id];
 
         if (!settings || !settings.enabled || !Array.isArray(settings.layerSettings) || !settings.layerSettings.length) {
-            return;
+            continue;
         }
-        
+
         // Find matching setting for the current application
-        const matchingSetting = settings.layerSettings.find((s: LayerSetting): boolean => 
+        const matchingSetting = settings.layerSettings.find((s: LayerSetting): boolean =>
             s.applicationName === appName || s.appName === appName
         );
         const deviceInfo = parseDeviceId(id);
-        
+
         if (!deviceInfo) {
-            return;
+            continue;
         }
-        
+
         // Initialize current layer tracking if needed
         if (currentLayers[id] === undefined) {
             currentLayers[id] = 0;
         }
-        
+
         // Determine target layer (0 is default if no matching setting)
         const targetLayer = matchingSetting ? (matchingSetting.layer || 0) : 0;
         const currentLayer = currentLayers[id];
-        
+
         // Only switch if current layer is different
         if (currentLayer !== targetLayer) {
             try {
-                writeCommand(deviceInfo, [commandId.gpkRCOperation, actionId.layerMove, targetLayer])
-                    .then((result): void => {
-                        if (result.success) {
-                            currentLayers[id] = targetLayer;
-                        } else {
-                            console.error(`Error switching layer for device ${id}:`, result.error);
-                        }
-                    }).catch((err: Error): void => {
-                        console.error(`Error switching layer for device ${id}:`, err);
-                    });
+                const result = await writeCommand(deviceInfo, [commandId.gpkRCOperation, actionId.layerMove, targetLayer]);
+                if (result.success) {
+                    currentLayers[id] = targetLayer;
+                } else {
+                    console.error(`Error switching layer for device ${id}:`, result.error);
+                }
             } catch (err) {
-                console.error(`Failed to initiate layer switch for device ${id}:`, err);
+                console.error(`Failed to switch layer for device ${id}:`, err);
             }
         }
-    });
+    }
 };
 
 // Get current active window list
