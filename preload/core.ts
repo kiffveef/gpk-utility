@@ -32,7 +32,7 @@ export let cachedStoreSettings: StoreSettings = {
         minimizeToTray: true,
         backgroundStart: false
     },
-    pollingInterval: 1000, // Default polling interval: 1000ms
+    pollingInterval: 2000, // Default polling interval: 2000ms (reduced frequency for stability)
     locale: 'en'
 };
 
@@ -51,7 +51,7 @@ export const unlockDeviceProcessing = (deviceId: string): void => {
 
 // Get current polling interval from settings or use default
 export const getPollingInterval = (): number => {
-    return cachedStoreSettings.pollingInterval || 1000;
+    return cachedStoreSettings.pollingInterval || 2000;
 };
 
 // Function to start keyboard polling at regular intervals

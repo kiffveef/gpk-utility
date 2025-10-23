@@ -11,3 +11,6 @@ dist-electron/
 docs/
 CLAUDE.md
 build.log
+
+/.claude/
+/.serena/
