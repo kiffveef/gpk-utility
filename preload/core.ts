@@ -32,7 +32,8 @@ export let cachedStoreSettings: StoreSettings = {
         minimizeToTray: true,
         backgroundStart: false
     },
-    pollingInterval: 2000, // Default polling interval: 2000ms (reduced frequency for stability)
+    pollingInterval: 3000,
+    windowMonitoringInterval: 500,
     locale: 'en'
 };
 
@@ -51,7 +52,12 @@ export const unlockDeviceProcessing = (deviceId: string): void => {
 
 // Get current polling interval from settings or use default
 export const getPollingInterval = (): number => {
-    return cachedStoreSettings.pollingInterval || 2000;
+    return cachedStoreSettings.pollingInterval || 3000;
+};
+
+// Get window monitoring interval (for layer switching)
+export const getWindowMonitoringInterval = (): number => {
+    return cachedStoreSettings.windowMonitoringInterval || 500;
 };
 
 // Function to start keyboard polling at regular intervals
@@ -72,14 +78,14 @@ export const startKeyboardPolling = (keyboardSendLoop: () => Promise<void>): voi
     }, interval);
 };
 
-// Function to start window monitoring at faster intervals
+// Function to start window monitoring at faster intervals for layer switching
 export const startWindowMonitoring = (startWindowMonitoringCommand: () => Promise<void>): void => {
     if (windowMonitoringInterval) {
         clearInterval(windowMonitoringInterval);
     }
-    
-    const interval = getPollingInterval();
-    
+
+    const interval = getWindowMonitoringInterval();
+
     // Set up interval for regular execution
     windowMonitoringInterval = setInterval(async (): Promise<void> => {
         try {

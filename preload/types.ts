@@ -57,6 +57,7 @@ export interface StoreSettings {
         backgroundStart: boolean;
     };
     pollingInterval: number;
+    windowMonitoringInterval: number;
     locale: string;
 }
 

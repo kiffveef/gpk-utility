@@ -33,6 +33,8 @@ export interface StoreSchema {
     windowBounds: WindowBounds;
     locale: string;
     notificationApiEndpoint: string;
+    pollingInterval: number;
+    windowMonitoringInterval: number;
     // Legacy fields for backward compatibility
     minimizeToTray?: boolean;
     backgroundStart?: boolean;

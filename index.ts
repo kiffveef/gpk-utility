@@ -29,7 +29,7 @@ if(process.platform==='linux') {
 }
 
 // Memory optimization settings
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=2048'); // Increased to 2GB for stability
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024'); // 1GB limit for balanced stability
 
 // ActiveWindow is already initialized as an instance, no need to call initialize()
 
@@ -59,7 +59,8 @@ const store = new Store<StoreSchema>({
         windowBounds: { width: 1280, height: 800 },
         locale: 'en',
         notificationApiEndpoint: 'https://getnotifications-svtx62766a-uc.a.run.app',
-        pollingInterval: 2000
+        pollingInterval: 3000,
+        windowMonitoringInterval: 500
     }
 });
 

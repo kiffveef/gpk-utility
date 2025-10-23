@@ -6,7 +6,7 @@ import { parseDeviceId } from './communication';
 
 // Device health monitoring variables
 let deviceHealthMonitor: NodeJS.Timeout | null = null;
-const deviceHealthCheckInterval = 10000; // Check every 10 seconds
+const deviceHealthCheckInterval = 20000; // Check every 20 seconds (reduced frequency)
 
 // Track previous device states to avoid unnecessary UI updates
 const previousDeviceStates = new Map<string, boolean>();
