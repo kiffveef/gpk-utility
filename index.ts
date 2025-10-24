@@ -1,22 +1,24 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, powerMonitor } from "electron";
 import Store from 'electron-store';
 import { ActiveWindow } from '@paymoapp/active-window';
 
 import {
-    close, 
-    setMainWindow, 
+    close,
+    setMainWindow,
     updateAutoLayerSettings,
     startWindowMonitoring,
     deviceStatusMap,
     writeCommand,
+    getKBDList,
+    start,
 } from './gpkrc';
 import { injectWindowMonitoringDependencies } from './gpkrc-modules/windowMonitoring';
 import { setupIpcHandlers, setupIpcEvents, setMainWindow as setIpcMainWindow, setStore as setIpcStore } from './ipcHandlers';
 import enTranslations from './src/i18n/locales/en';
-import type { ActiveWindowResult, DeviceStatus } from './src/types/device';
+import type { ActiveWindowResult, DeviceStatus, Device } from './src/types/device';
 import type { StoreSchema } from './src/types/store';
 import type { TranslationParams } from './src/types/api-types';
 import type { TranslationObject } from './src/types/translation';
@@ -389,6 +391,99 @@ app.on('activate', async (): Promise<void> => {
 app.on('before-quit', (): void => {
     // Clean up window monitoring timer
     stopContinuousWindowMonitoring();
+});
+
+// Power management event handlers for sleep/resume
+app.on('ready', (): void => {
+    // Store connected device IDs before suspend
+    let connectedDeviceIds: string[] = [];
+
+    powerMonitor.on('suspend', (): void => {
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('System is going to sleep');
+        }
+
+        // Stop window monitoring before sleep
+        stopContinuousWindowMonitoring();
+
+        // Store currently connected device IDs
+        connectedDeviceIds = Object.keys(deviceStatusMap).filter((id): boolean => {
+            const status = deviceStatusMap[id];
+            return status !== undefined && status.connected === true;
+        });
+
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('Connected devices before sleep:', connectedDeviceIds);
+        }
+
+        // Close all device connections gracefully
+        void close();
+    });
+
+    powerMonitor.on('resume', (): void => {
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('System resumed from sleep');
+        }
+
+        // Wait a moment for USB devices to stabilize
+        setTimeout((): void => {
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('Attempting to reconnect devices...');
+            }
+
+            // Get current device list
+            const availableDevices = getKBDList();
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('Available devices after resume:', availableDevices.length);
+            }
+
+            // Attempt to reconnect previously connected devices
+            connectedDeviceIds.forEach((previousId): void => {
+                // Find matching device in current list
+                const matchingDevice = availableDevices.find((d): boolean => d.id === previousId);
+
+                if (matchingDevice && matchingDevice.manufacturer && matchingDevice.product) {
+                    if (process.env.NODE_ENV === 'development') {
+                        console.warn(`Reconnecting device: ${previousId}`);
+                    }
+
+                    // Convert DeviceWithId to Device type
+                    const deviceToReconnect: Device = {
+                        ...matchingDevice,
+                        id: matchingDevice.id,
+                        manufacturer: matchingDevice.manufacturer,
+                        product: matchingDevice.product,
+                        vendorId: matchingDevice.vendorId,
+                        productId: matchingDevice.productId
+                    };
+
+                    start(deviceToReconnect)
+                        .then((newId): void => {
+                            if (process.env.NODE_ENV === 'development') {
+                                console.warn(`Successfully reconnected device: ${newId}`);
+                            }
+
+                            // Notify renderer if window exists
+                            if (mainWindow) {
+                                mainWindow.webContents.send('device-reconnected', { deviceId: newId });
+                            }
+                        })
+                        .catch((error): void => {
+                            console.error(`Failed to reconnect device ${previousId}:`, error);
+                        });
+                } else {
+                    console.warn(`Device ${previousId} not found after resume or missing required properties`);
+                }
+            });
+
+            // Restart window monitoring
+            startContinuousWindowMonitoring();
+
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('Device reconnection attempts completed');
+            }
+        }, 2000);
+    });
 });
 
 // Export handleDeviceDisconnect for use by IPC handlers
