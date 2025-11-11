@@ -12,10 +12,14 @@ import type { StoreSchema } from './src/types/store';
 let _mainWindow: BrowserWindow | null = null;
 let _store: Store<StoreSchema> | null = null;
 
+// Guard flags to prevent duplicate handler registration
+let _handlersRegistered = false;
+let _eventsRegistered = false;
+
 // Set references from main process
 export const setMainWindow = (window: BrowserWindow | null): void => {
     _mainWindow = window;
-    
+
     // Pass mainWindow to all handler modules
     setDeviceMainWindow(window);
     setConfigMainWindow(window);
@@ -25,7 +29,7 @@ export const setMainWindow = (window: BrowserWindow | null): void => {
 
 export const setStore = (storeInstance: Store<StoreSchema>): void => {
     _store = storeInstance;
-    
+
     // Pass store to modules that need it
     setConfigStore(storeInstance);
     setStoreInStoreHandlers(storeInstance);
@@ -34,6 +38,13 @@ export const setStore = (storeInstance: Store<StoreSchema>): void => {
 
 // Setup all IPC handlers
 export const setupIpcHandlers = (): void => {
+    if (_handlersRegistered) {
+        console.warn('IPC handlers already registered, skipping duplicate registration');
+        return;
+    }
+
+    _handlersRegistered = true;
+
     // Setup handlers from each module
     setupDeviceHandlers();
     setupConfigHandlers();
@@ -42,13 +53,18 @@ export const setupIpcHandlers = (): void => {
     setupNotificationHandlers();
 };
 
-// Removed unused interface - TrayMenuTemplate is not used in this file
-
 // Setup event handlers (non-handle IPC events)
 export const setupIpcEvents = (activePomodoroDevices: Map<string, unknown>, tray: Electron.Tray, createTrayMenuTemplate: () => Electron.MenuItemConstructorOptions[]): void => {
+    if (_eventsRegistered) {
+        console.warn('IPC events already registered, skipping duplicate registration');
+        return;
+    }
+
+    _eventsRegistered = true;
+
     // Setup device events
     setupDeviceEvents();
-    
+
     // Setup notification events
     setupNotificationEvents(activePomodoroDevices as Map<string, { name: string; phase: number }>, tray, createTrayMenuTemplate);
 };

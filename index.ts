@@ -399,8 +399,16 @@ app.on('before-quit', (): void => {
 // Power management event handlers for sleep/resume
 // Store connected device IDs before suspend
 let connectedDeviceIds: string[] = [];
+let powerMonitoringRegistered = false;
 
 const setupPowerMonitoring = (): void => {
+    if (powerMonitoringRegistered) {
+        console.warn('Power monitoring already registered, skipping duplicate registration');
+        return;
+    }
+
+    powerMonitoringRegistered = true;
+
     powerMonitor.on('suspend', (): void => {
         if (process.env.NODE_ENV === 'development') {
             console.warn('System is going to sleep');
