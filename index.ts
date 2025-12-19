@@ -1,7 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { app, BrowserWindow, Tray, Menu, nativeImage, powerMonitor } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, powerMonitor, dialog } from "electron";
 import Store from 'electron-store';
 import { ActiveWindow } from '@paymoapp/active-window';
 
@@ -35,14 +35,55 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024'); // 1GB li
 
 // Global error handlers to prevent app crashes
 process.on('uncaughtException', (error: Error): void => {
-    console.error('Uncaught Exception:', error);
-    // Log to file or send to error tracking service if needed
+    console.error('Uncaught Exception:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        timestamp: new Date().toISOString(),
+        platform: process.platform
+    });
+
+    // Cleanup and restart on critical error
+    const cleanup = async (): Promise<void> => {
+        try {
+            // Stop window monitoring first
+            stopContinuousWindowMonitoring();
+
+            // Close all devices
+            await close();
+        } catch (cleanupError) {
+            console.error('Cleanup failed during uncaught exception:', cleanupError);
+        }
+
+        // Show error dialog if app is ready
+        if (app.isReady() && mainWindow && !mainWindow.isDestroyed()) {
+            await dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: 'Application Error',
+                message: 'An unexpected error occurred. The application will restart.',
+                detail: error.message
+            });
+        }
+
+        // Restart the application
+        app.relaunch();
+        app.exit(1);
+    };
+
+    void cleanup();
 });
 
 process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>): void => {
-    console.error('Unhandled Promise Rejection:', reason);
-    console.error('Promise:', promise);
-    // Log to file or send to error tracking service if needed
+    console.error('Unhandled Promise Rejection:', {
+        reason: reason instanceof Error ? {
+            message: reason.message,
+            stack: reason.stack,
+            name: reason.name
+        } : reason,
+        promise: promise.toString(),
+        timestamp: new Date().toISOString(),
+        platform: process.platform
+    });
 });
 
 // ActiveWindow is already initialized as an instance, no need to call initialize()
@@ -172,11 +213,7 @@ const createTrayMenuTemplate = (): Electron.MenuItemConstructorOptions[] => {
     menuItems.push({
         label: 'Quit',
         click: (): void => {
-            close().catch((error): void => {
-                console.error('Error closing devices on quit:', error);
-            }).finally((): void => {
-                app.exit(0);
-            });
+            void safeQuit('tray-menu');
         }
     });
     
@@ -226,7 +263,15 @@ const monitorActiveWindow = async (): Promise<void> => {
         // Silently ignore errors from window monitoring
         // This is expected when accessing system-level applications
         if (process.env.NODE_ENV === 'development') {
-            console.warn('Window monitoring error (expected for system apps):', error);
+            console.warn('Window monitoring error (expected for system apps):', {
+                error: error instanceof Error ? {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                } : error,
+                context: 'window-monitoring',
+                timestamp: new Date().toISOString()
+            });
         }
     }
 };
@@ -243,7 +288,15 @@ const startContinuousWindowMonitoring = (): void => {
     // Initial check with error handling
     monitorActiveWindow().catch((error): void => {
         if (process.env.NODE_ENV === 'development') {
-            console.warn('Initial window monitoring failed:', error);
+            console.warn('Initial window monitoring failed:', {
+                error: error instanceof Error ? {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                } : error,
+                context: 'initial-window-monitoring',
+                timestamp: new Date().toISOString()
+            });
         }
     });
 
@@ -251,7 +304,15 @@ const startContinuousWindowMonitoring = (): void => {
     windowMonitoringTimer = setInterval((): void => {
         monitorActiveWindow().catch((error): void => {
             if (process.env.NODE_ENV === 'development') {
-                console.warn('Window monitoring interval failed:', error);
+                console.warn('Window monitoring interval failed:', {
+                    error: error instanceof Error ? {
+                        message: error.message,
+                        stack: error.stack,
+                        name: error.name
+                    } : error,
+                    context: 'window-monitoring-interval',
+                    timestamp: new Date().toISOString()
+                });
             }
         });
     }, intervalMs);
@@ -262,6 +323,45 @@ const stopContinuousWindowMonitoring = (): void => {
     if (windowMonitoringTimer) {
         clearInterval(windowMonitoringTimer);
         windowMonitoringTimer = null;
+    }
+};
+
+// Safe quit function with proper cleanup
+const safeQuit = async (context: string = 'unknown'): Promise<void> => {
+    console.warn(`Safe quit initiated from: ${context}`);
+
+    try {
+        // Stop window monitoring first
+        stopContinuousWindowMonitoring();
+
+        // Close all devices with timeout
+        const closePromise = close();
+        const timeoutPromise = new Promise<void>((resolve): ReturnType<typeof setTimeout> =>
+            setTimeout((): void => {
+                console.warn('Device close timeout, proceeding with quit');
+                resolve();
+            }, 2000)
+        );
+
+        await Promise.race([closePromise, timeoutPromise]);
+
+        console.warn('Cleanup completed, exiting application');
+    } catch (error) {
+        console.error(`Error during safe quit from ${context}:`, {
+            error: error instanceof Error ? {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            } : error,
+            context,
+            timestamp: new Date().toISOString()
+        });
+    } finally {
+        // Small delay to ensure cleanup completes
+        await new Promise<void>((resolve): ReturnType<typeof setTimeout> =>
+            setTimeout(resolve, 300)
+        );
+        app.exit(0);
     }
 };
 
@@ -336,9 +436,9 @@ const createWindow = async (): Promise<void> => {
             return;
         }
 
-        close().catch((error): void => {
-            console.error('Error closing devices on window close:', error);
-        });
+        // Prevent default close and use safe quit instead
+        event.preventDefault();
+        void safeQuit('window-close');
     });
 
     mainWindow.on('minimize', (): void => {
@@ -366,14 +466,7 @@ app.on('window-all-closed', (): void => {
             return;
         }
 
-        // Clean up window monitoring
-        stopContinuousWindowMonitoring();
-
-        close().catch((error): void => {
-            console.error('Error closing devices on window-all-closed:', error);
-        }).finally((): void => {
-            app.quit();
-        });
+        void safeQuit('window-all-closed');
     }
 });
 
@@ -448,7 +541,17 @@ const setupPowerMonitoring = (): void => {
 
             // Close all device connections gracefully
             close().catch((error): void => {
-                console.error('Error closing devices during suspend:', error);
+                console.error('Error closing devices during suspend:', {
+                    error: error instanceof Error ? {
+                        message: error.message,
+                        stack: error.stack,
+                        name: error.name
+                    } : error,
+                    context: 'system-suspend',
+                    connectedDeviceIds,
+                    timestamp: new Date().toISOString(),
+                    platform: process.platform
+                });
             });
         } catch (error) {
             console.error('Error during system suspend:', error);
