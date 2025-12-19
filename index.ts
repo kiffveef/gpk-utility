@@ -277,13 +277,11 @@ const monitorActiveWindow = async (): Promise<void> => {
 };
 
 // Start window monitoring with cleanup
-const startContinuousWindowMonitoring = (): void => {
+const startContinuousWindowMonitoring = (intervalMs: number = 500): void => {
     // Stop existing monitoring if any
     if (windowMonitoringTimer) {
         clearInterval(windowMonitoringTimer);
     }
-
-    const intervalMs = 500; // 500ms interval for responsive layer switching
 
     // Initial check with error handling
     monitorActiveWindow().catch((error): void => {
@@ -448,6 +446,27 @@ const createWindow = async (): Promise<void> => {
         }
     });
 
+    // Focus-based window monitoring optimization
+    mainWindow.on('focus', (): void => {
+        // Setting window focused = stop layer switching
+        stopContinuousWindowMonitoring();
+
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('Window focused: stopped window monitoring');
+        }
+    });
+
+    mainWindow.on('blur', (): void => {
+        // Window lost focus = resume layer switching
+        // Adjust interval based on visibility
+        const interval = mainWindow!.isVisible() ? 1500 : 500;
+        startContinuousWindowMonitoring(interval);
+
+        if (process.env.NODE_ENV === 'development') {
+            console.warn(`Window blurred: started window monitoring (${interval}ms interval, visible: ${mainWindow!.isVisible()})`);
+        }
+    });
+
     // Clean up event listeners when window is destroyed
     mainWindow.once('closed', (): void => {
         mainWindow = null;
@@ -491,7 +510,19 @@ app.on('ready', async (): Promise<void> => {
     setupPowerMonitoring();
 
     // Start window monitoring for automatic layer switching
-    startContinuousWindowMonitoring();
+    // Adjust initial interval based on window state
+    if (!mainWindow!.isFocused()) {
+        const interval = mainWindow!.isVisible() ? 1500 : 500;
+        startContinuousWindowMonitoring(interval);
+
+        if (process.env.NODE_ENV === 'development') {
+            console.warn(`Initial window monitoring: ${interval}ms (focused: ${mainWindow!.isFocused()}, visible: ${mainWindow!.isVisible()})`);
+        }
+    } else {
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('Window focused at startup: window monitoring not started');
+        }
+    }
 
     if (process.env.NODE_ENV === 'development') {
         mainWindow!.webContents.openDevTools();
