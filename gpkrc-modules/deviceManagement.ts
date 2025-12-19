@@ -364,7 +364,9 @@ const start = async (device: GPKDevice): Promise<string> => {
                                                 product: device.product || '',
                                                 connected: true
                                             };
-                                            void writeTimeToOled(gpkDevice); 
+                                            writeTimeToOled(gpkDevice).catch((error): void => {
+                                                console.error(`Failed to write time to OLED for ${id}:`, error);
+                                            }); 
                                         }
                                         deviceStatusMap[id]!.config.oled_enabled = oledSettings[id].enabled ? 1 : 0;
                                     }

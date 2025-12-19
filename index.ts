@@ -33,6 +33,18 @@ if(process.platform==='linux') {
 // Memory optimization settings
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024'); // 1GB limit for balanced stability
 
+// Global error handlers to prevent app crashes
+process.on('uncaughtException', (error: Error): void => {
+    console.error('Uncaught Exception:', error);
+    // Log to file or send to error tracking service if needed
+});
+
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>): void => {
+    console.error('Unhandled Promise Rejection:', reason);
+    console.error('Promise:', promise);
+    // Log to file or send to error tracking service if needed
+});
+
 // ActiveWindow is already initialized as an instance, no need to call initialize()
 
 interface PomodoroDeviceInfo {
@@ -157,16 +169,15 @@ const createTrayMenuTemplate = (): Electron.MenuItemConstructorOptions[] => {
     
     // Add quit item
     menuItems.push({ type: 'separator' });
-    menuItems.push({ 
-        label: 'Quit', 
+    menuItems.push({
+        label: 'Quit',
         click: (): void => {
-            try {
-                void close();
-            } catch {
-                // Ignored
-            }
-            app.exit(0);
-        } 
+            close().catch((error): void => {
+                console.error('Error closing devices on quit:', error);
+            }).finally((): void => {
+                app.exit(0);
+            });
+        }
     });
     
     return menuItems;
@@ -211,9 +222,12 @@ const monitorActiveWindow = async (): Promise<void> => {
                 };
             }
         });
-    } catch {
+    } catch (error) {
         // Silently ignore errors from window monitoring
         // This is expected when accessing system-level applications
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('Window monitoring error (expected for system apps):', error);
+        }
     }
 };
 
@@ -226,12 +240,20 @@ const startContinuousWindowMonitoring = (): void => {
 
     const intervalMs = 500; // 500ms interval for responsive layer switching
 
-    // Initial check
-    void monitorActiveWindow();
+    // Initial check with error handling
+    monitorActiveWindow().catch((error): void => {
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('Initial window monitoring failed:', error);
+        }
+    });
 
     // Set up interval for continuous monitoring
     windowMonitoringTimer = setInterval((): void => {
-        void monitorActiveWindow();
+        monitorActiveWindow().catch((error): void => {
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('Window monitoring interval failed:', error);
+            }
+        });
     }, intervalMs);
 };
 
@@ -314,11 +336,9 @@ const createWindow = async (): Promise<void> => {
             return;
         }
 
-        try {
-            void close();
-        } catch {
-            // Ignored
-        }
+        close().catch((error): void => {
+            console.error('Error closing devices on window close:', error);
+        });
     });
 
     mainWindow.on('minimize', (): void => {
@@ -346,16 +366,14 @@ app.on('window-all-closed', (): void => {
             return;
         }
 
-        try{
-            void close();
-        } catch {
-            // Ignored
-        }
-
         // Clean up window monitoring
         stopContinuousWindowMonitoring();
 
-        app.quit();
+        close().catch((error): void => {
+            console.error('Error closing devices on window-all-closed:', error);
+        }).finally((): void => {
+            app.quit();
+        });
     }
 });
 
@@ -429,7 +447,9 @@ const setupPowerMonitoring = (): void => {
             }
 
             // Close all device connections gracefully
-            void close();
+            close().catch((error): void => {
+                console.error('Error closing devices during suspend:', error);
+            });
         } catch (error) {
             console.error('Error during system suspend:', error);
         }
