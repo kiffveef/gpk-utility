@@ -602,18 +602,23 @@ const stop = async (device: GPKDevice): Promise<void> => {
 
     // Clean up device state tracking
     cleanupDeviceStateTracking(id);
+
+    // Clean up write chain to prevent memory leak on repeated connect/disconnect
+    deviceWriteChain.delete(id);
 }
 
 const _close = (id: string): boolean => {
     if (!hidDeviceInstances[id]) {
         return false;
     }
-    
+
     try {
          hidDeviceInstances[id]!.close()
     } catch (err) {
         console.error(`Error in _close for ${id}:`, err);
     }
+    // Clean up write chain entry for this device
+    deviceWriteChain.delete(id);
     return true;
 }
 
