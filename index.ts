@@ -1,9 +1,13 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
 import { app, BrowserWindow, Tray, Menu, nativeImage, powerMonitor, dialog } from "electron";
 import Store from 'electron-store';
 import { ActiveWindow } from '@paymoapp/active-window';
+
+const execAsync = promisify(exec);
 
 import {
     close,
@@ -249,14 +253,36 @@ const createTray = (): void => {
 const monitorActiveWindow = async (): Promise<void> => {
     try {
         await startWindowMonitoring({
-            getActiveWindow: async (): Promise<ActiveWindowResult> => {
-                const result = await ActiveWindow.getActiveWindow();
-                return {
-                    title: result.title,
-                    application: result.application,
-                    name: result.application,
-                    executableName: result.application
-                };
+            getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
+                try {
+                    const result = await ActiveWindow.getActiveWindow();
+                    return {
+                        application: result.application
+                    };
+                } catch {
+                    // Fallback for Linux using gdbus (Wayland/GNOME)
+                    if (process.platform === 'linux') {
+                        try {
+                            const { stdout } = await execAsync(
+                                'gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/shell/extensions/FocusedWindow --method org.gnome.shell.extensions.FocusedWindow.Get'
+                            );
+                            // Parse GVariant tuple: ('{"wm_class":"...", ...}',)
+                            const jsonStr = stdout.trim().slice(2, -3);
+                            const data = JSON.parse(jsonStr) as { wm_class?: string };
+                            if (data.wm_class) {
+                                // Extract last part: "org.gnome.Nautilus" -> "Nautilus"
+                                const parts = data.wm_class.split('.');
+                                const appName = parts[parts.length - 1] || data.wm_class;
+                                return {
+                                    application: appName
+                                };
+                            }
+                        } catch {
+                            // gdbus fallback also failed
+                        }
+                    }
+                    return null;
+                }
             }
         });
     } catch (error) {
@@ -374,13 +400,13 @@ const createWindow = async (): Promise<void> => {
         minWidth: minWidth,
         minHeight: minHeight,
         icon: `${__dirname}/../icons/256x256.png`,
+        backgroundColor: '#111827',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
         },
         show: !store.get('traySettings')?.backgroundStart,
-        backgroundColor: '#f0f0f0', // Prevent white flash
     };
     
     if (windowBounds.x !== undefined) {

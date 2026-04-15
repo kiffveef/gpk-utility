@@ -15,7 +15,20 @@ Device Polling Interval、トラックパッドの設定は設定内容により
 設定変更の際は十分にご確認のうえ慎重に操作してください。<br>
 万が一、動作に問題が生じた場合は、Device Polling Intervalを1000msec、トラックパッドはVial Userタブにある「EEPROM Clear」ボタンを設定し押すことで、デバイス設定を初期化することが可能です。<br>
 EEPROM Clearはトラックパッド以外の全ての設定もクリアされます。
+
 ![Image](https://github.com/user-attachments/assets/b9a13791-89b5-4eea-942b-cd967c2d444d)
+
+#### Linux: Auto Layer Switch機能について
+Linux環境ではX11またはGNOME Shell拡張を前提としています。
+
+**Wayland / GNOME環境の場合:**<br>
+以下のGNOME Shell拡張機能をインストールしてください。<br>
+https://extensions.gnome.org/extension/5592/focused-window-d-bus/
+
+**注意事項:**<br>
+本機能はX11環境を除き、GNOME Shellに依存しているため、KDE Plasmaなど他のデスクトップ環境では動作しません。<br>
+KDE環境で同等の機能を実現するには、KWinスクリプト等を用いた独自実装が必要となります。<br>
+現時点ではKDE環境を保有していないため公式対応は行っていませんが、実装・改善に関するプルリクエストは歓迎します。<br>
 
 
 ## Feature Tabs

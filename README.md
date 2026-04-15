@@ -12,11 +12,23 @@ If you do not wish to use these functions, you can configure the application via
 ![Image](https://github.com/user-attachments/assets/b9a13791-89b5-4eea-942b-cd967c2d444d)
 
 #### Notice
-Please do not launch any applications that communicate with the device, such as Vial, before starting GPK Utility.  
-If the device is not recognized when multiple applications are running simultaneously, please close all related applications, reconnect the device, and then launch GPK Utility.  
+Please do not launch any applications that communicate with the device, such as Vial, before starting GPK Utility.
+If the device is not recognized when multiple applications are running simultaneously, please close all related applications, reconnect the device, and then launch GPK Utility.
 Some touchpad settings may interfere with the proper operation of the device depending on the configuration.<br>
 Please review and apply settings carefully. <br>
 If any operational issues occur, you can initialize the device settings by pressing the **"EEPROM Clear"** button within the application.<br>
+
+#### Linux: Auto Layer Switch Feature
+This feature requires X11 or a GNOME Shell extension on Linux.
+
+**For Wayland / GNOME environments:**<br>
+Please install the following GNOME Shell extension:<br>
+https://extensions.gnome.org/extension/5592/focused-window-d-bus/
+
+**Note:**<br>
+Except for X11 environments, this feature depends on GNOME Shell and will not work on other desktop environments such as KDE Plasma.<br>
+To achieve equivalent functionality on KDE, a custom implementation using KWin scripts or similar would be required.<br>
+We currently do not have access to a KDE environment and therefore do not provide official support, but pull requests for implementation or improvements are welcome.<br>
 
 
 ## Feature Tabs
