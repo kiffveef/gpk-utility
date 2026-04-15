@@ -185,10 +185,6 @@ export const addNewAppToAutoLayerSettings = async (deviceId: string, appName: st
         };
     }
     
-    if (!autoLayerSettings[deviceId].layerSettings) {
-        autoLayerSettings[deviceId].layerSettings = [];
-    }
-    
     // Overwrite existing settings if they exist, otherwise add new
     const existingIndex = autoLayerSettings[deviceId].layerSettings.findIndex(
         (setting): boolean => setting.applicationName === appName
