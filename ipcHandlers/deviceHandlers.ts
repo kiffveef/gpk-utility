@@ -28,6 +28,7 @@ import {
 } from '../gpkrc';
 import type { Device, DeviceWithId, DeviceStatus, CommandResult, ActiveWindowResult } from '../src/types/device';
 import { DeviceType } from '../gpkrc-modules/deviceTypes';
+import { monitoringState } from '../gpkrc-modules/monitoringState';
 
 const execAsync = promisify(exec);
 
@@ -140,39 +141,70 @@ export const setupDeviceHandlers = (): void => {
 
     // Window monitoring control
     ipcMain.handle('startWindowMonitoring', async (_event): Promise<void> => {
-        await startWindowMonitoring({
-            getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
-                try {
-                    const result = await ActiveWindow.getActiveWindow();
-                    return {
-                        application: result.application
-                    };
-                } catch {
-                    // Fallback for Linux using gdbus
-                    if (process.platform === 'linux') {
+        // Skip if suspended or another monitoring call is already running
+        if (monitoringState.isSuspended || monitoringState.isActive) {
+            return;
+        }
+        monitoringState.isActive = true;
+
+        let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
+        const overallTimeoutPromise = new Promise<void>((resolve): void => {
+            overallTimeoutId = setTimeout((): void => {
+                console.warn('IPC startWindowMonitoring timed out');
+                resolve();
+            }, 5000);
+        });
+
+        try {
+            await Promise.race([
+                startWindowMonitoring({
+                    getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
                         try {
-                            const { stdout } = await execAsync(
-                                'gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/shell/extensions/FocusedWindow --method org.gnome.shell.extensions.FocusedWindow.Get'
-                            );
-                            // Parse GVariant tuple: ('{"wm_class":"...", ...}',)
-                            const jsonStr = stdout.trim().slice(2, -3);
-                            const data = JSON.parse(jsonStr) as { wm_class?: string };
-                            if (data.wm_class) {
-                                // Extract last part: "org.gnome.Nautilus" -> "Nautilus"
-                                const parts = data.wm_class.split('.');
-                                const appName = parts[parts.length - 1] || data.wm_class;
-                                return {
-                                    application: appName
-                                };
-                            }
+                            let timeoutId: ReturnType<typeof setTimeout> | null = null;
+                            const timeoutPromise = new Promise<null>((resolve): void => {
+                                timeoutId = setTimeout((): void => resolve(null), 2000);
+                            });
+                            const result = await Promise.race([
+                                ActiveWindow.getActiveWindow(),
+                                timeoutPromise
+                            ]);
+                            if (timeoutId !== null) clearTimeout(timeoutId);
+                            if (!result) return null;
+                            return {
+                                application: result.application
+                            };
                         } catch {
-                            // gdbus fallback also failed, return null
+                            // Fallback for Linux using gdbus
+                            if (process.platform === 'linux') {
+                                try {
+                                    const { stdout } = await execAsync(
+                                        'gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/shell/extensions/FocusedWindow --method org.gnome.shell.extensions.FocusedWindow.Get'
+                                    );
+                                    // Parse GVariant tuple: ('{"wm_class":"...", ...}',)
+                                    const jsonStr = stdout.trim().slice(2, -3);
+                                    const data = JSON.parse(jsonStr) as { wm_class?: string };
+                                    if (data.wm_class) {
+                                        // Extract last part: "org.gnome.Nautilus" -> "Nautilus"
+                                        const parts = data.wm_class.split('.');
+                                        const appName = parts[parts.length - 1] || data.wm_class;
+                                        return {
+                                            application: appName
+                                        };
+                                    }
+                                } catch {
+                                    // gdbus fallback also failed, return null
+                                }
+                            }
+                            return null;
                         }
                     }
-                    return null;
-                }
-            }
-        });
+                }),
+                overallTimeoutPromise
+            ]);
+        } finally {
+            if (overallTimeoutId !== null) clearTimeout(overallTimeoutId);
+            monitoringState.isActive = false;
+        }
     });
 
     // Active window list retrieval handler

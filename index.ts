@@ -20,6 +20,7 @@ import {
     start,
 } from './gpkrc';
 import { injectWindowMonitoringDependencies } from './gpkrc-modules/windowMonitoring';
+import { monitoringState } from './gpkrc-modules/monitoringState';
 import { setupIpcHandlers, setupIpcEvents, setMainWindow as setIpcMainWindow, setStore as setIpcStore } from './ipcHandlers';
 import enTranslations from './src/i18n/locales/en';
 import type { ActiveWindowResult, DeviceStatus, Device } from './src/types/device';
@@ -101,9 +102,6 @@ interface PomodoroDeviceInfo {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let windowMonitoringTimer: NodeJS.Timeout | null = null;
-// Guards to prevent concurrent monitoring and calls during suspend/resume
-let isMonitoringActive = false;
-let isSuspended = false;
 
 // Initialize electron-store
 const store = new Store<StoreSchema>({
@@ -256,53 +254,69 @@ const createTray = (): void => {
 // Guard prevents concurrent calls that would cause HID write collisions
 const monitorActiveWindow = async (): Promise<void> => {
     // Skip if suspended (sleep/resume transition) or another call is already running
-    if (isSuspended || isMonitoringActive) {
+    if (monitoringState.isSuspended || monitoringState.isActive) {
         return;
     }
-    isMonitoringActive = true;
+    monitoringState.isActive = true;
+
+    // Overall timeout guards against HID write hangs in checkAndSwitchLayer,
+    // which would keep isMonitoringActive=true indefinitely and stall all future monitoring
+    let overallTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    const overallTimeoutPromise = new Promise<void>((resolve): void => {
+        overallTimeoutId = setTimeout((): void => {
+            console.warn('monitorActiveWindow timed out (HID write may be hanging)');
+            resolve();
+        }, 5000);
+    });
 
     try {
-        await startWindowMonitoring({
-            getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
-                try {
-                    // Timeout prevents hanging when OS window APIs are busy (e.g., app launch)
-                    const timeoutPromise = new Promise<null>((resolve): ReturnType<typeof setTimeout> =>
-                        setTimeout((): void => resolve(null), 2000)
-                    );
-                    const result = await Promise.race([
-                        ActiveWindow.getActiveWindow(),
-                        timeoutPromise
-                    ]);
-                    if (!result) return null;
-                    return {
-                        application: result.application
-                    };
-                } catch {
-                    // Fallback for Linux using gdbus (Wayland/GNOME)
-                    if (process.platform === 'linux') {
-                        try {
-                            const { stdout } = await execAsync(
-                                'gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/shell/extensions/FocusedWindow --method org.gnome.shell.extensions.FocusedWindow.Get'
-                            );
-                            // Parse GVariant tuple: ('{"wm_class":"...", ...}',)
-                            const jsonStr = stdout.trim().slice(2, -3);
-                            const data = JSON.parse(jsonStr) as { wm_class?: string };
-                            if (data.wm_class) {
-                                // Extract last part: "org.gnome.Nautilus" -> "Nautilus"
-                                const parts = data.wm_class.split('.');
-                                const appName = parts[parts.length - 1] || data.wm_class;
-                                return {
-                                    application: appName
-                                };
+        await Promise.race([
+            startWindowMonitoring({
+                getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
+                    try {
+                        // Timeout prevents hanging when OS window APIs are busy (e.g., app launch)
+                        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+                        const timeoutPromise = new Promise<null>((resolve): void => {
+                            timeoutId = setTimeout((): void => resolve(null), 2000);
+                        });
+                        const result = await Promise.race([
+                            ActiveWindow.getActiveWindow(),
+                            timeoutPromise
+                        ]);
+                        // Cancel the timeout if getActiveWindow resolved first
+                        if (timeoutId !== null) clearTimeout(timeoutId);
+                        if (!result) return null;
+                        return {
+                            application: result.application
+                        };
+                    } catch {
+                        // Fallback for Linux using gdbus (Wayland/GNOME)
+                        if (process.platform === 'linux') {
+                            try {
+                                const { stdout } = await execAsync(
+                                    'gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/shell/extensions/FocusedWindow --method org.gnome.shell.extensions.FocusedWindow.Get'
+                                );
+                                // Parse GVariant tuple: ('{"wm_class":"...", ...}',)
+                                const jsonStr = stdout.trim().slice(2, -3);
+                                const data = JSON.parse(jsonStr) as { wm_class?: string };
+                                if (data.wm_class) {
+                                    // Extract last part: "org.gnome.Nautilus" -> "Nautilus"
+                                    const parts = data.wm_class.split('.');
+                                    const appName = parts[parts.length - 1] || data.wm_class;
+                                    return {
+                                        application: appName
+                                    };
+                                }
+                            } catch {
+                                // gdbus fallback also failed
                             }
-                        } catch {
-                            // gdbus fallback also failed
                         }
+                        return null;
                     }
-                    return null;
                 }
-            }
-        });
+            }),
+            overallTimeoutPromise
+        ]);
     } catch (error) {
         // Silently ignore errors from window monitoring
         // This is expected when accessing system-level applications
@@ -318,14 +332,15 @@ const monitorActiveWindow = async (): Promise<void> => {
             });
         }
     } finally {
-        isMonitoringActive = false;
+        if (overallTimeoutId !== null) clearTimeout(overallTimeoutId);
+        monitoringState.isActive = false;
     }
 };
 
 // Start window monitoring with cleanup
 const startContinuousWindowMonitoring = (intervalMs: number = 500): void => {
     // Skip if suspended
-    if (isSuspended) return;
+    if (monitoringState.isSuspended) return;
 
     // Stop existing monitoring if any
     if (windowMonitoringTimer) {
@@ -633,7 +648,7 @@ const setupPowerMonitoring = (): void => {
 
         try {
             // Set suspended flag first to block any in-flight monitoring calls
-            isSuspended = true;
+            monitoringState.isSuspended = true;
 
             // Stop window monitoring before sleep
             stopContinuousWindowMonitoring();
@@ -733,7 +748,7 @@ const setupPowerMonitoring = (): void => {
                     });
 
                     // Clear suspended flag and restart window monitoring
-                    isSuspended = false;
+                    monitoringState.isSuspended = false;
                     startContinuousWindowMonitoring();
 
                     if (process.env.NODE_ENV === 'development') {
@@ -743,7 +758,7 @@ const setupPowerMonitoring = (): void => {
                     console.error('Error during device reconnection:', error);
 
                     // Clear suspended flag and restart window monitoring even if reconnection fails
-                    isSuspended = false;
+                    monitoringState.isSuspended = false;
                     startContinuousWindowMonitoring();
                 }
             }, 2000);
