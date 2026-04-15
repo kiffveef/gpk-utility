@@ -1,25 +1,20 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { app, BrowserWindow, Tray, Menu, nativeImage, powerMonitor, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, dialog } from "electron";
 import Store from 'electron-store';
 
 import {
     close,
     setMainWindow,
     updateAutoLayerSettings,
-    startWindowMonitoring,
     deviceStatusMap,
     writeCommand,
-    getKBDList,
-    start,
 } from './gpkrc';
 import { injectWindowMonitoringDependencies } from './gpkrc-modules/windowMonitoring';
-import { monitoringState } from './gpkrc-modules/monitoringState';
-import { getActiveWindowWithFallback, withTimeout } from './gpkrc-modules/activeWindowHelper';
 import { setupIpcHandlers, setupIpcEvents, setMainWindow as setIpcMainWindow, setStore as setIpcStore } from './ipcHandlers';
 import enTranslations from './src/i18n/locales/en';
-import type { DeviceStatus, Device } from './src/types/device';
+import type { DeviceStatus } from './src/types/device';
 import type { StoreSchema } from './src/types/store';
 import type { TranslationParams } from './src/types/api-types';
 import type { TranslationObject } from './src/types/translation';
@@ -47,9 +42,6 @@ process.on('uncaughtException', (error: Error): void => {
     // Cleanup and restart on critical error
     const cleanup = async (): Promise<void> => {
         try {
-            // Stop window monitoring first
-            stopContinuousWindowMonitoring();
-
             // Close all devices
             await close();
         } catch (cleanupError) {
@@ -94,18 +86,9 @@ interface PomodoroDeviceInfo {
     phase: number;
 }
 
-// Window monitoring intervals
-// Background (tray/hidden): fast response for layer switching
-const MONITORING_INTERVAL_BACKGROUND_MS = 500;
-// Visible but not focused: reduced polling since user is on another app
-const MONITORING_INTERVAL_VISIBLE_MS = 1500;
-// Overall timeout for one monitoring cycle (guards against HID write hangs)
-const MONITORING_CYCLE_TIMEOUT_MS = 5000;
-
 // Global variables
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let windowMonitoringTimer: NodeJS.Timeout | null = null;
 
 // Initialize electron-store
 const store = new Store<StoreSchema>({
@@ -239,80 +222,11 @@ const createTray = (): void => {
     });
 };
 
-// Window monitoring for automatic layer switching
-// Guard prevents concurrent calls that would cause HID write collisions
-const monitorActiveWindow = async (): Promise<void> => {
-    // Skip if suspended (sleep/resume transition) or another call is already running
-    if (monitoringState.isSuspended || monitoringState.isActive) return;
-    monitoringState.isActive = true;
-
-    try {
-        // withTimeout guards against HID write hangs in checkAndSwitchLayer
-        // which would keep isActive=true indefinitely and stall all future monitoring
-        await withTimeout(
-            startWindowMonitoring({ getActiveWindow: getActiveWindowWithFallback }),
-            MONITORING_CYCLE_TIMEOUT_MS,
-            'monitorActiveWindow'
-        );
-    } catch (error) {
-        if (process.env.NODE_ENV === 'development') {
-            console.warn('Window monitoring error:', {
-                error: error instanceof Error ? { message: error.message, stack: error.stack, name: error.name } : error,
-                context: 'window-monitoring',
-                timestamp: new Date().toISOString()
-            });
-        }
-    } finally {
-        monitoringState.isActive = false;
-    }
-};
-
-// Start window monitoring with cleanup
-const startContinuousWindowMonitoring = (intervalMs: number = 500): void => {
-    // Skip if suspended
-    if (monitoringState.isSuspended) return;
-
-    // Stop existing monitoring if any
-    if (windowMonitoringTimer) {
-        clearInterval(windowMonitoringTimer);
-        windowMonitoringTimer = null;
-    }
-
-    // Set up interval for continuous monitoring
-    // Immediate call is intentionally omitted: calling at blur time risks hitting
-    // an unstable OS window API state (e.g., during another app's startup)
-    windowMonitoringTimer = setInterval((): void => {
-        monitorActiveWindow().catch((error): void => {
-            if (process.env.NODE_ENV === 'development') {
-                console.warn('Window monitoring interval failed:', {
-                    error: error instanceof Error ? {
-                        message: error.message,
-                        stack: error.stack,
-                        name: error.name
-                    } : error,
-                    context: 'window-monitoring-interval',
-                    timestamp: new Date().toISOString()
-                });
-            }
-        });
-    }, intervalMs);
-};
-
-// Stop window monitoring
-const stopContinuousWindowMonitoring = (): void => {
-    if (windowMonitoringTimer) {
-        clearInterval(windowMonitoringTimer);
-        windowMonitoringTimer = null;
-    }
-};
-
 // Safe quit function with proper cleanup
 const safeQuit = async (context: string = 'unknown'): Promise<void> => {
     console.warn(`Safe quit initiated from: ${context}`);
 
     try {
-        // Stop window monitoring first
-        stopContinuousWindowMonitoring();
 
         // Close all devices with timeout
         const closePromise = close();
@@ -428,45 +342,6 @@ const createWindow = async (): Promise<void> => {
         }
     });
 
-    // Focus-based window monitoring optimization
-    // Remove existing listeners to prevent duplicates
-    mainWindow.removeAllListeners('focus');
-    mainWindow.removeAllListeners('blur');
-    mainWindow.removeAllListeners('show');
-    mainWindow.removeAllListeners('hide');
-
-    mainWindow.on('focus', (): void => {
-        // Setting window focused = stop layer switching
-        stopContinuousWindowMonitoring();
-
-        if (process.env.NODE_ENV === 'development') {
-            console.warn('Window focused: stopped window monitoring');
-        }
-    });
-
-    mainWindow.on('blur', (): void => {
-        const interval = mainWindow!.isVisible()
-            ? MONITORING_INTERVAL_VISIBLE_MS
-            : MONITORING_INTERVAL_BACKGROUND_MS;
-        startContinuousWindowMonitoring(interval);
-
-        if (process.env.NODE_ENV === 'development') {
-            console.warn(`Window blurred: started monitoring (${interval}ms, visible: ${mainWindow!.isVisible()})`);
-        }
-    });
-
-    mainWindow.on('show', (): void => {
-        // focus event handles the case where window gets focus
-        if (!mainWindow!.isFocused()) {
-            startContinuousWindowMonitoring(MONITORING_INTERVAL_VISIBLE_MS);
-        }
-    });
-
-    mainWindow.on('hide', (): void => {
-        // Tray/hidden mode needs fast layer switching
-        startContinuousWindowMonitoring(MONITORING_INTERVAL_BACKGROUND_MS);
-    });
-
     // Clean up event listeners when window is destroyed
     mainWindow.once('closed', (): void => {
         mainWindow = null;
@@ -506,31 +381,6 @@ app.on('ready', async (): Promise<void> => {
         setupIpcEvents(activePomodoroDevices, tray, createTrayMenuTemplate as () => Electron.MenuItemConstructorOptions[]);
     }
 
-    // Setup power monitoring for sleep/resume
-    setupPowerMonitoring();
-
-    // Start window monitoring for automatic layer switching
-    // Wait for window to be fully ready before checking focus state
-    mainWindow!.webContents.once('did-finish-load', (): void => {
-        // Small delay to ensure window state is stable
-        setTimeout((): void => {
-            if (!mainWindow || mainWindow.isDestroyed()) {
-                return;
-            }
-
-            if (!mainWindow.isFocused()) {
-                const interval = mainWindow.isVisible()
-                    ? MONITORING_INTERVAL_VISIBLE_MS
-                    : MONITORING_INTERVAL_BACKGROUND_MS;
-                startContinuousWindowMonitoring(interval);
-
-                if (process.env.NODE_ENV === 'development') {
-                    console.warn(`Initial monitoring: ${interval}ms (visible: ${mainWindow.isVisible()})`);
-                }
-            }
-        }, 100);
-    });
-
     if (process.env.NODE_ENV === 'development') {
         mainWindow!.webContents.openDevTools();
     }
@@ -540,118 +390,6 @@ app.on('activate', async (): Promise<void> => {
     if (mainWindow === null) await createWindow();
 });
 
-app.on('before-quit', (): void => {
-    // Clean up window monitoring timer
-    stopContinuousWindowMonitoring();
-});
-
-// Power management event handlers for sleep/resume
-// Store connected device IDs before suspend
-let connectedDeviceIds: string[] = [];
-let powerMonitoringRegistered = false;
-
-const setupPowerMonitoring = (): void => {
-    if (powerMonitoringRegistered) {
-        console.warn('Power monitoring already registered, skipping duplicate registration');
-        return;
-    }
-
-    powerMonitoringRegistered = true;
-
-    powerMonitor.on('suspend', (): void => {
-        if (process.env.NODE_ENV === 'development') {
-            console.warn('System is going to sleep');
-        }
-
-        try {
-            // Set suspended flag first to block any in-flight monitoring calls
-            monitoringState.isSuspended = true;
-
-            // Stop window monitoring before sleep
-            stopContinuousWindowMonitoring();
-
-            // Store currently connected device IDs
-            connectedDeviceIds = Object.keys(deviceStatusMap).filter((id): boolean => {
-                const status = deviceStatusMap[id];
-                return status !== undefined && status.connected === true;
-            });
-
-            if (process.env.NODE_ENV === 'development') {
-                console.warn('Connected devices before sleep:', connectedDeviceIds);
-            }
-
-            // Close all device connections gracefully
-            close().catch((error): void => {
-                console.error('Error closing devices during suspend:', {
-                    error: error instanceof Error ? {
-                        message: error.message,
-                        stack: error.stack,
-                        name: error.name
-                    } : error,
-                    context: 'system-suspend',
-                    connectedDeviceIds,
-                    timestamp: new Date().toISOString(),
-                    platform: process.platform
-                });
-            });
-        } catch (error) {
-            console.error('Error during system suspend:', error);
-        }
-    });
-
-    powerMonitor.on('resume', (): void => {
-        if (process.env.NODE_ENV === 'development') {
-            console.warn('System resumed from sleep');
-        }
-
-        // Wait for USB devices to stabilize before reconnecting
-        setTimeout((): void => {
-            try {
-                reconnectPreviousDevices(getKBDList());
-            } catch (error) {
-                console.error('Error during device reconnection:', error);
-            } finally {
-                monitoringState.isSuspended = false;
-                startContinuousWindowMonitoring();
-            }
-        }, 2000);
-    });
-};
-
-// Reconnect devices that were connected before the system suspended
-const reconnectPreviousDevices = (availableDevices: ReturnType<typeof getKBDList>): void => {
-    if (process.env.NODE_ENV === 'development') {
-        console.warn('Reconnecting devices, available:', availableDevices.length);
-    }
-
-    connectedDeviceIds.forEach((previousId): void => {
-        const matchingDevice = availableDevices.find((d): boolean => d.id === previousId);
-
-        if (!matchingDevice?.manufacturer || !matchingDevice?.product) {
-            if (process.env.NODE_ENV === 'development') {
-                console.warn(`Device ${previousId} not found after resume`);
-            }
-            return;
-        }
-
-        if (process.env.NODE_ENV === 'development') {
-            console.warn(`Reconnecting device: ${previousId}`);
-        }
-
-        start({ ...matchingDevice, manufacturer: matchingDevice.manufacturer, product: matchingDevice.product })
-            .then((newId): void => {
-                if (process.env.NODE_ENV === 'development') {
-                    console.warn(`Reconnected device: ${newId}`);
-                }
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('device-reconnected', { deviceId: newId });
-                }
-            })
-            .catch((error): void => {
-                console.error(`Failed to reconnect device ${previousId}:`, error);
-            });
-    });
-};
 
 // Export handleDeviceDisconnect for use by IPC handlers
 export { handleDeviceDisconnect };

@@ -114,6 +114,16 @@ export const command = {
 
 export const keyboardSendLoop = async (): Promise<void> => {
     try {
+        // Window monitoring for automatic layer switching.
+        // Skipped when the window is focused (user is configuring - no layer switching needed).
+        if (!document.hasFocus()) {
+            try {
+                await command.startWindowMonitoring();
+            } catch (error) {
+                console.error('[ERROR] startWindowMonitoring in keyboardSendLoop:', error);
+            }
+        }
+
         const kbdList = await command.getKBDList();
         const connectedIds = new Set(kbdList.map((device): string => device.id));
 

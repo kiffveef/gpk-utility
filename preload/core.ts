@@ -10,7 +10,6 @@ import type { GenericEventCallback } from './eventTypes';
 export const listeners = new Map<GenericEventCallback, (event: Electron.IpcRendererEvent, ...args: unknown[]) => void>();
 export let cachedDeviceRegistry: Device[] = [];
 export let keyboardPollingInterval: NodeJS.Timeout | null = null;
-export let windowMonitoringInterval: NodeJS.Timeout | null = null;
 
 // Device processing lock mechanism to prevent concurrent processing
 export const deviceProcessingLocks = new Map<string, boolean>();
@@ -60,38 +59,21 @@ export const getWindowMonitoringInterval = (): number => {
     return cachedStoreSettings.windowMonitoringInterval || 500;
 };
 
-// Function to start keyboard polling at regular intervals
+// Function to start keyboard polling at regular intervals.
+// Uses windowMonitoringInterval (default 500ms) so layer switching is responsive.
+// Device status ops (OLED, Pomodoro) are lightweight enough to run at this frequency.
 export const startKeyboardPolling = (keyboardSendLoop: () => Promise<void>): void => {
     if (keyboardPollingInterval) {
         clearInterval(keyboardPollingInterval);
     }
-    
-    const interval = getPollingInterval();
-    
-    // Set up interval using the current polling interval setting
+
+    const interval = getWindowMonitoringInterval();
+
     keyboardPollingInterval = setInterval(async (): Promise<void> => {
         try {
             await keyboardSendLoop();
         } catch (error) {
             console.error('[ERROR] keyboardSendLoop failed:', error);
-        }
-    }, interval);
-};
-
-// Function to start window monitoring at faster intervals for layer switching
-export const startWindowMonitoring = (startWindowMonitoringCommand: () => Promise<void>): void => {
-    if (windowMonitoringInterval) {
-        clearInterval(windowMonitoringInterval);
-    }
-
-    const interval = getWindowMonitoringInterval();
-
-    // Set up interval for regular execution
-    windowMonitoringInterval = setInterval(async (): Promise<void> => {
-        try {
-            await startWindowMonitoringCommand();
-        } catch (error) {
-            console.error('[ERROR] startWindowMonitoringCommand failed:', error);
         }
     }, interval);
 };
@@ -123,10 +105,6 @@ export const saveStoreSetting = async <K extends keyof StoreSettings>(key: K, va
                 // Clear existing intervals
                 if (keyboardPollingInterval) {
                     clearInterval(keyboardPollingInterval);
-                }
-                
-                if (windowMonitoringInterval) {
-                    clearInterval(windowMonitoringInterval);
                 }
                 
                 // Signal that intervals need to be restarted

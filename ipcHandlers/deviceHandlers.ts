@@ -24,8 +24,7 @@ import {
 } from '../gpkrc';
 import type { Device, DeviceWithId, DeviceStatus, CommandResult } from '../src/types/device';
 import { DeviceType } from '../gpkrc-modules/deviceTypes';
-import { monitoringState } from '../gpkrc-modules/monitoringState';
-import { getActiveWindowWithFallback, withTimeout } from '../gpkrc-modules/activeWindowHelper';
+import { getActiveWindowWithFallback } from '../gpkrc-modules/activeWindowHelper';
 
 let mainWindow: BrowserWindow | null;
 
@@ -134,20 +133,9 @@ export const setupDeviceHandlers = (): void => {
         setActiveTab(device, tabName)
     });
 
-    // Window monitoring control
+    // Window monitoring control: called from keyboardSendLoop in renderer (500ms interval)
     ipcMain.handle('startWindowMonitoring', async (_event): Promise<void> => {
-        if (monitoringState.isSuspended || monitoringState.isActive) return;
-        monitoringState.isActive = true;
-
-        try {
-            await withTimeout(
-                startWindowMonitoring({ getActiveWindow: getActiveWindowWithFallback }),
-                5000,
-                'IPC startWindowMonitoring'
-            );
-        } finally {
-            monitoringState.isActive = false;
-        }
+        await startWindowMonitoring({ getActiveWindow: getActiveWindowWithFallback });
     });
 
     // Active window list retrieval handler

@@ -28,6 +28,10 @@ import { injectLedDependencies, receiveLedConfig, receiveLedLayerConfig } from '
 import { injectWindowMonitoringDependencies, cleanupDeviceLayerTracking } from './windowMonitoring';
 import { stopDeviceHealthMonitoring } from './deviceHealth';
 
+// Per-device write serialization: prevents concurrent HID writes to the same device.
+// Each device has a Promise chain; new writes wait for the previous to complete.
+const deviceWriteChain = new Map<string, Promise<void>>();
+
 interface Command {
     id: number;
     data?: number[];
@@ -627,7 +631,7 @@ const close = async (): Promise<void> => {
     });
 }
 
-const writeCommand = async (device: GPKDevice, command: number[], retryCount: number = 0): Promise<CommandResult> => {
+const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCount: number = 0): Promise<CommandResult> => {
     // Device already has encoded ID, use it directly
     const id = device.id;
     const maxRetries = 2; // Allow 2 retries for communication failures
@@ -743,6 +747,24 @@ const writeCommand = async (device: GPKDevice, command: number[], retryCount: nu
         return { success: false, error: `Write error: ${errorMessage}` };
     }
 }
+
+// Public writeCommand: serializes writes per device via Promise chaining.
+// Regardless of how many concurrent callers exist, writes to the same device
+// are always executed one at a time, preventing HID collision crashes.
+const writeCommand = (device: GPKDevice, command: number[], retryCount: number = 0): Promise<CommandResult> => {
+    const id = device.id;
+    const previous = deviceWriteChain.get(id) ?? Promise.resolve();
+
+    let release!: () => void;
+    const acquired = new Promise<void>((resolve): void => { release = resolve; });
+    deviceWriteChain.set(id, previous.then((): Promise<void> => acquired));
+
+    return previous.then((): Promise<CommandResult> => {
+        return _writeCommandImpl(device, command, retryCount).finally((): void => {
+            release();
+        });
+    });
+};
 
 const getConnectKbd = (id: string): DeviceStatus | undefined => deviceStatusMap[id]
 
