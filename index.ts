@@ -101,6 +101,9 @@ interface PomodoroDeviceInfo {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let windowMonitoringTimer: NodeJS.Timeout | null = null;
+// Guards to prevent concurrent monitoring and calls during suspend/resume
+let isMonitoringActive = false;
+let isSuspended = false;
 
 // Initialize electron-store
 const store = new Store<StoreSchema>({
@@ -250,12 +253,27 @@ const createTray = (): void => {
 };
 
 // Window monitoring for automatic layer switching
+// Guard prevents concurrent calls that would cause HID write collisions
 const monitorActiveWindow = async (): Promise<void> => {
+    // Skip if suspended (sleep/resume transition) or another call is already running
+    if (isSuspended || isMonitoringActive) {
+        return;
+    }
+    isMonitoringActive = true;
+
     try {
         await startWindowMonitoring({
             getActiveWindow: async (): Promise<ActiveWindowResult | null> => {
                 try {
-                    const result = await ActiveWindow.getActiveWindow();
+                    // Timeout prevents hanging when OS window APIs are busy (e.g., app launch)
+                    const timeoutPromise = new Promise<null>((resolve): ReturnType<typeof setTimeout> =>
+                        setTimeout((): void => resolve(null), 2000)
+                    );
+                    const result = await Promise.race([
+                        ActiveWindow.getActiveWindow(),
+                        timeoutPromise
+                    ]);
+                    if (!result) return null;
                     return {
                         application: result.application
                     };
@@ -299,32 +317,25 @@ const monitorActiveWindow = async (): Promise<void> => {
                 timestamp: new Date().toISOString()
             });
         }
+    } finally {
+        isMonitoringActive = false;
     }
 };
 
 // Start window monitoring with cleanup
 const startContinuousWindowMonitoring = (intervalMs: number = 500): void => {
+    // Skip if suspended
+    if (isSuspended) return;
+
     // Stop existing monitoring if any
     if (windowMonitoringTimer) {
         clearInterval(windowMonitoringTimer);
+        windowMonitoringTimer = null;
     }
 
-    // Initial check with error handling
-    monitorActiveWindow().catch((error): void => {
-        if (process.env.NODE_ENV === 'development') {
-            console.warn('Initial window monitoring failed:', {
-                error: error instanceof Error ? {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name
-                } : error,
-                context: 'initial-window-monitoring',
-                timestamp: new Date().toISOString()
-            });
-        }
-    });
-
     // Set up interval for continuous monitoring
+    // Immediate call is intentionally omitted: calling at blur time risks hitting
+    // an unstable OS window API state (e.g., during another app's startup)
     windowMonitoringTimer = setInterval((): void => {
         monitorActiveWindow().catch((error): void => {
             if (process.env.NODE_ENV === 'development') {
@@ -621,6 +632,9 @@ const setupPowerMonitoring = (): void => {
         }
 
         try {
+            // Set suspended flag first to block any in-flight monitoring calls
+            isSuspended = true;
+
             // Stop window monitoring before sleep
             stopContinuousWindowMonitoring();
 
@@ -660,6 +674,7 @@ const setupPowerMonitoring = (): void => {
 
         try {
             // Wait a moment for USB devices to stabilize
+            // isSuspended is cleared inside setTimeout after devices are reconnected
             setTimeout((): void => {
                 if (process.env.NODE_ENV === 'development') {
                     console.warn('Attempting to reconnect devices...');
@@ -717,7 +732,8 @@ const setupPowerMonitoring = (): void => {
                         }
                     });
 
-                    // Restart window monitoring
+                    // Clear suspended flag and restart window monitoring
+                    isSuspended = false;
                     startContinuousWindowMonitoring();
 
                     if (process.env.NODE_ENV === 'development') {
@@ -726,7 +742,8 @@ const setupPowerMonitoring = (): void => {
                 } catch (error) {
                     console.error('Error during device reconnection:', error);
 
-                    // Still try to restart window monitoring even if device reconnection fails
+                    // Clear suspended flag and restart window monitoring even if reconnection fails
+                    isSuspended = false;
                     startContinuousWindowMonitoring();
                 }
             }, 2000);
