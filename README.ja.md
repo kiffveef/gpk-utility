@@ -16,8 +16,6 @@ Device Polling Interval、トラックパッドの設定は設定内容により
 万が一、動作に問題が生じた場合は、Device Polling Intervalを1000msec、トラックパッドはVial Userタブにある「EEPROM Clear」ボタンを設定し押すことで、デバイス設定を初期化することが可能です。<br>
 EEPROM Clearはトラックパッド以外の全ての設定もクリアされます。
 
-![Image](https://github.com/user-attachments/assets/b9a13791-89b5-4eea-942b-cd967c2d444d)
-
 #### Linux: Auto Layer Switch機能について
 Linux環境ではX11またはGNOME Shell拡張を前提としています。
 
@@ -30,6 +28,28 @@ https://extensions.gnome.org/extension/5592/focused-window-d-bus/
 KDE環境で同等の機能を実現するには、KWinスクリプト等を用いた独自実装が必要となります。<br>
 現時点ではKDE環境を保有していないため公式対応は行っていませんが、実装・改善に関するプルリクエストは歓迎します。<br>
 
+
+## 目次
+
+- [Feature Tabs](#feature-tabs)
+  - [Common](#common)
+    - [Layer](#layer)
+    - [Haptic](#haptic)
+  - [Trackpad Features](#trackpad-features)
+    - [Mouse](#mouse)
+    - [Scroll](#scroll)
+    - [Drag & Drop](#drag--drop)
+    - [Timer](#timer)
+    - [Gesture](#gesture)
+    - [Config Edit Mode](#config-edit-mode)
+  - [Keyboard Features](#keyboard-features)
+    - [OLED](#oled)
+    - [LED](#led)
+  - [Application Settings](#application-settings)
+- [使用方法](#使用方法)
+- [実装ガイド](#実装ガイド)
+- [開発者サポート](#開発者サポート)
+- [ライセンス](#ライセンス)
 
 ## Feature Tabs
 
@@ -112,6 +132,16 @@ Long Break - BLUE
 - **Pinch Term**: 次のピンチジェスチャーが使用できるまでの間隔（0-500ms）
 - **Pinch Distance**: 次のピンチジェスチャーが使用できるまでの間隔（0-500）
 
+#### Config Edit Mode
+デバイスごとにトラックパッド設定のプリセットを保存・適用します。
+
+- **Save**: 現在の Mouse / Scroll / Drag & Drop / Gesture 設定に名前を付けて保存します。既存の名前で保存すると上書き確認が表示されます。
+- **Default**: 基準となる設定です。Apply でデバイスをこの基準設定に戻します。
+- **Apply**: 選択したプリセットをデバイスに一時適用してライブプレビューします。デバイスが値を受け取ったことを検証し、処理中は「適用中...」、完了後に結果を表示します。
+- **View**: 保存された設定値を表示します。
+- **Rename**: プリセット名をクリックして変更します。
+- **Delete**: プリセットを削除します。
+
 ### Keyboard Features
 
 #### OLED
@@ -146,26 +176,12 @@ Long Break - BLUE
 4. 左側のメニューから設定したい機能を選択します
 5. 各設定を調整し、デバイスに適用します
 
-## カスタム
-https://github.com/darakuneko/vial-qmk/tree/gpk-utility
-
-ご自身のVialキーボードを対応させたい場合はgpk-utilityブランチを使用して、rules.mkにGPKRC_ENABLE = yes
-を必ず追加してください
-
-rules.mk<br>
-GPKRC_ENABLE = yes
-
-### 定義
-- **Application**: 
-https://github.com/darakuneko/vial-qmk/blob/gpk-utility/quantum/gpk_rc.h  
-- **Application**: 
-https://github.com/darakuneko/gpk-utility/blob/main/gpkrc.js  
-  
-### 作例:   
-keyboard(Auto Layer Switch/OLED): [gpk60_47gr1re_vial](https://github.com/darakuneko/keyboard/tree/main/qmk/gpk60_47gr1re_vial)   
-trakpad: [numnum bento](https://github.com/darakuneko/keyboard/tree/main/qmk/numnum_bento)   
-
-**仕様は予告なく変更されます**
+## 実装ガイド
+- [Vial ファームウェア統合仕様書](./docs/features/vial_firmware_integration.ja.md)
+- [付録A: パケット / 構造体早見表](./docs/features/vial_firmware_appendix_a_packets.ja.md)
+- [付録B: device_type 別必須機能マトリクス](./docs/features/vial_firmware_appendix_b_device_matrix.ja.md)
+- [付録C: ホスト UI ↔ フィールド対応表](./docs/features/vial_firmware_appendix_c_host_mapping.ja.md)
+- [付録D: 実装チェックリスト](./docs/features/vial_firmware_appendix_d_checklist.ja.md)
 
 ## 開発者サポート
 
@@ -182,7 +198,7 @@ trakpad: [numnum bento](https://github.com/darakuneko/keyboard/tree/main/qmk/num
 
 <div align="center">
 
-**GPK FWMaker - QMK/Vialファームウェア生成をもっと簡単に**
+**GPK Utility - キーボード・タッチパッドの設定ユーティリティ**
 
 Made with ❤️ by [darakuneko](https://github.com/darakuneko)
 

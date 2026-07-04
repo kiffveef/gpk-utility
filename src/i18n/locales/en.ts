@@ -6,8 +6,11 @@ const enMessages: LocaleMessages = {
     export: 'Export',
     saveComplete: 'Settings saved successfully',
     saveError: 'Error saving settings',
+    applyComplete: 'Applied successfully',
+    applying: 'Applying...',
     ok: 'OK',
-    delete: 'Delete'
+    delete: 'Delete',
+    deleteConfirm: 'Delete?'
   },
   about: {
     title: 'About',
@@ -74,11 +77,14 @@ const enMessages: LocaleMessages = {
     layerNumber: 'Layer {{number}}',
     noMappingsEnabledHint: 'No application mappings configured yet. Disable Auto Layer to add mappings.',
     appLayerMappings: 'Application Layer Mappings',
+    appSelectHint: 'If the application you want is not listed, activate its window once and try again.',
     addMapping: 'Add Mapping',
     actions: 'Actions',
     noMappingsFound: 'No mappings found. Click "Add Mapping" to create a new mapping.',
     application: 'Application',
-    layer: 'Layer'
+    layer: 'Layer',
+    config: 'Config',
+    configEditMode: 'Config Edit Mode'
   },
   timer: {
     title: 'Pomodoro Timer',
@@ -134,6 +140,16 @@ const enMessages: LocaleMessages = {
     stopBody: 'Your pomodoro session has ended',
     enableDesktopNotifications: 'Desktop Notifications',
     enableHapticNotifications: 'Haptic Feedback Notifications'
+  },
+  data: {
+    usageHint: 'After creating with a name, press the Edit button to switch to edit mode, then adjust the parameters while operating your target app.',
+    create: 'Create',
+    edit: 'Edit',
+    editing: 'Editing',
+    overwriteConfirm: 'Overwrite?',
+    noSaves: 'No saved configs',
+    default: 'Default',
+    view: 'View'
   },
   led: {
     title: 'LED Settings',

@@ -25,11 +25,23 @@ export const actionId = {
 
     // Actions for gpkRCOperation (commandId: 0x04)
     layerMove: 0x01,
-    oledWrite: 0x02,    
+    oledWrite: 0x02,
+    trackpadTempApply: 0x03,
 } as const;
 
 export const PACKET_PADDING = 64;
 export const DEVICE_ID_SEPARATOR = '::';
+
+// Timing parameters for verified config writes (write -> readback -> verify -> retry).
+// Centralized here so the previously hardcoded delays (e.g. the 500ms settle in
+// trackpadConfig/pomodoroConfig) are tunable from a single place.
+export const CONFIG_SYNC_TIMING = {
+    settleMs: 500,         // Wait after a write before reading the value back from the device
+    pollIntervalMs: 100,   // Delay between read-back polls within a verification attempt
+    verifyTimeoutMs: 600,  // Per-attempt window to keep polling for a matching read-back
+    maxAttempts: 3,        // Number of write+verify attempts before giving up
+    pendingTtlMs: 5000,    // How long a desired value shields read-backs from reverting the UI
+} as const;
 
 // Command interface
 export interface Command {

@@ -7,8 +7,11 @@ export interface LocaleMessages {
     export: string;
     saveComplete: string;
     saveError: string;
+    applyComplete: string;
+    applying: string;
     ok: string;
     delete: string;
+    deleteConfirm: string;
   };
   about: {
     title: string;
@@ -75,11 +78,14 @@ export interface LocaleMessages {
     layerNumber: string;
     noMappingsEnabledHint: string;
     appLayerMappings: string;
+    appSelectHint: string;
     addMapping: string;
     actions: string;
     noMappingsFound: string;
     application: string;
     layer: string;
+    config: string;
+    configEditMode: string;
   };
   timer: {
     title: string;
@@ -156,5 +162,15 @@ export interface LocaleMessages {
     rgbEffectSolidColorOnly: string;
     pomodoroColorChangeDescription: string;
     layerColorPickerDescription: string;
+  };
+  data: {
+    usageHint: string;
+    create: string;
+    edit: string;
+    editing: string;
+    overwriteConfirm: string;
+    noSaves: string;
+    default: string;
+    view: string;
   };
 }

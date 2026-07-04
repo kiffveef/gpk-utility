@@ -1,6 +1,6 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import importPlugin from 'eslint-plugin-import';
+import importPlugin from 'eslint-plugin-import-x';
 import unusedImportsPlugin from 'eslint-plugin-unused-imports';
 import type { TSESLint } from '@typescript-eslint/utils';
 
@@ -8,6 +8,14 @@ const config: TSESLint.FlatConfig.ConfigArray = tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    settings: {
+      'import-x/resolver': {
+        typescript: {
+          project: './tsconfig.json',
+        },
+        node: true,
+      },
+    },
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -24,13 +32,13 @@ const config: TSESLint.FlatConfig.ConfigArray = tseslint.config(
     },
     plugins: {
       '@typescript-eslint': tseslint.plugin,
-      'import': importPlugin,
+      'import-x': importPlugin,
       'unused-imports': unusedImportsPlugin,
     },
     rules: {
       // Import rules
-      'import/no-cycle': 'error',
-      'import/order': [
+      'import-x/no-cycle': 'error',
+      'import-x/order': [
         'error',
         {
           groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index'],

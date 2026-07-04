@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { JSX } from 'react';
 
 import type { Device, DeviceConfig } from '../types/device';
@@ -21,6 +21,10 @@ interface SettingEditProps {
     device: Device;
     activeTab?: string;
     setActiveTab?: (tabId: string) => void;
+    isConfigEditMode?: boolean;
+    onConfigEditModeChange?: (enabled: boolean) => void;
+    editingConfigId?: string | null;
+    onEditingChange?: (configId: string | null) => void;
 }
 
 const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.Element => {
@@ -28,6 +32,18 @@ const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.
     const device = props.device;
     const [isSliderActive, setIsSliderActive] = useState(false);
     const [pendingChanges, setPendingChanges] = useState<{ device?: Device; pType?: string }>({});
+    const [autoLayerEnabled, setAutoLayerEnabled] = useState(false);
+    const [configEditFilename, setConfigEditFilename] = useState('');
+
+    useEffect((): void => {
+        const load = async (): Promise<void> => {
+            if (!api?.getAllStoreSettings) return;
+            const settings = await api.getAllStoreSettings();
+            const autoLayer = settings?.autoLayerSettings as Record<string, { enabled?: boolean } | undefined> | undefined;
+            setAutoLayerEnabled(autoLayer?.[device.id]?.enabled ?? false);
+        };
+        void load();
+    }, [device.id]);
     
     // Get active tab from parent component
     const activeTab = props.activeTab || "mouse";
@@ -307,6 +323,7 @@ const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.
                                 handleChange={handleChangeValue}
                                 handleSliderStart={handleSliderStart}
                                 handleSliderEnd={handleSliderEnd}
+                                disabled={autoLayerEnabled}
                             />
                         )}
 
@@ -314,6 +331,13 @@ const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.
                         {activeTab === "layer" && (
                             <LayerSettings
                                 device={device}
+                                isConfigEditMode={props.isConfigEditMode ?? false}
+                                onAutoLayerEnabledChange={setAutoLayerEnabled}
+                                configEditFilename={configEditFilename}
+                                onConfigEditFilenameChange={setConfigEditFilename}
+                                {...(props.onConfigEditModeChange !== undefined && { onConfigEditModeChange: props.onConfigEditModeChange })}
+                                {...(props.editingConfigId !== undefined && { editingConfigId: props.editingConfigId })}
+                                {...(props.onEditingChange !== undefined && { onEditingChange: props.onEditingChange })}
                             />
                         )}
 
@@ -324,6 +348,7 @@ const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.
                                 handleChange={handleChange}
                                 handleSliderStart={handleSliderStart}
                                 handleSliderEnd={handleSliderEnd}
+                                disabled={autoLayerEnabled}
                             />
                         )}
 
@@ -364,6 +389,7 @@ const SettingEdit: React.FC<SettingEditProps> = ((props: SettingEditProps): JSX.
                                 handleChange={handleChangeValue}
                                 handleSliderStart={handleSliderStart}
                                 handleSliderEnd={handleSliderEnd}
+                                disabled={autoLayerEnabled}
                             />
                         )}
 

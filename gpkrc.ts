@@ -35,12 +35,14 @@ import {
     updateAutoLayerSettings
 } from './gpkrc-modules/deviceManagement';
 import { 
-    joinScrollTerm, 
-    joinDragTerm, 
-    joinDefaultSpeed, 
-    receiveTrackpadSpecificConfig, 
-    saveTrackpadConfig, 
-    getTrackpadConfigData 
+    joinScrollTerm,
+    joinDragTerm,
+    joinDefaultSpeed,
+    receiveTrackpadSpecificConfig,
+    saveTrackpadConfig,
+    applyTrackpadTempConfig,
+    buildTrackpadConfigByteArray,
+    getTrackpadConfigData
 } from './gpkrc-modules/trackpadConfig';
 import { 
     receivePomodoroConfig, 
@@ -49,14 +51,17 @@ import {
     getPomodoroConfig, 
     getPomodoroActiveStatus 
 } from './gpkrc-modules/pomodoroConfig';
-import { 
-    receiveLedConfig, 
-    receiveLedLayerConfig, 
-    getLedConfig, 
+import {
+    receiveLedConfig,
+    receiveLedLayerConfig,
+    getLedConfig,
     getLedLayerConfig,
     saveLedConfig,
-    saveLedLayerConfig 
+    saveLedLayerConfig,
+    buildLedConfigByteArray,
+    buildLedLayerConfigByteArray
 } from './gpkrc-modules/ledConfig';
+import { saveConfigWithVerify } from './gpkrc-modules/configSync';
 import { writeTimeToOled, lastFormattedDateMap } from './gpkrc-modules/oledDisplay';
 import {
     activeWindows, 
@@ -120,7 +125,7 @@ const getDeviceConfig = async (device: Device, retryCount: number = 0): Promise<
                 }
                 hidDeviceInstances[id] = null;
             }
-            throw new Error(`HID instance not ready for ${id}: ${(hidCheckError as Error).message}`);
+            throw new Error(`HID instance not ready for ${id}: ${(hidCheckError as Error).message}`, { cause: hidCheckError });
         }
         
         // Wait a bit before attempting communication to ensure device is ready
@@ -219,7 +224,8 @@ export { getSelectedAppSettings, addNewAppToAutoLayerSettings };
 export { encodeDeviceId, parseDeviceId };
 export { getDeviceInitConfig, getDeviceConfig, writeTimeToOled, getPomodoroConfig };
 export { getDeviceType };
-export { saveTrackpadConfig, savePomodoroConfigData, getPomodoroActiveStatus, getTrackpadConfigData, getLedConfig, getLedLayerConfig, saveLedConfig, saveLedLayerConfig };
+export { saveTrackpadConfig, applyTrackpadTempConfig, buildTrackpadConfigByteArray, savePomodoroConfigData, getPomodoroActiveStatus, getTrackpadConfigData, getLedConfig, getLedLayerConfig, saveLedConfig, saveLedLayerConfig, buildLedConfigByteArray, buildLedLayerConfigByteArray };
+export { saveConfigWithVerify };
 
 // Export additional functions and variables that were in the original file
 export { deviceStatusMap, hidDeviceInstances, activeTabPerDevice, isEditingPomodoroPerDevice, settingsStore };

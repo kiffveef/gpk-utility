@@ -12,10 +12,17 @@ import SettingEdit from "./settingEdit.tsx"
 import { HamburgerIcon, MenuItem, LeftMenuItem } from "./SettingsUIComponents.tsx"
 import { getSupportedSettingTabs } from "./SettingsDeviceUtils.ts"
 
+// Config Edit Mode shows only the Layer tab; Mouse/Scroll/Gesture appear only while
+// live-editing a config, so its trackpad values can be tuned.
+const CONFIG_EDIT_TABS = new Set(['layer']);
+const CONFIG_EDIT_LIVE_TABS = new Set(['layer', 'mouse', 'scroll', 'gesture']);
+
 interface SettingsContainerProps {
     saveStatus?: {
         visible: boolean;
         success: boolean;
+        isApply?: boolean;
+        pending?: boolean;
     };
 }
 
@@ -25,6 +32,8 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
     const { t, locale, changeLocale, isLoading: _isLoading } = useLanguage();
     
     const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null)
+    const [isConfigEditMode, setIsConfigEditMode] = useState(false)
+    const [editingConfigId, setEditingConfigId] = useState<string | null>(null)
     const [activeSettingTab, setActiveSettingTab] = useState("mouse")
     const [userSelectedTab, setUserSelectedTab] = useState(false) // Flag to track manual tab selection
     const [menuOpen, setMenuOpen] = useState(false)
@@ -82,7 +91,17 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
         void loadTraySettings();
         void loadOpenAtLogin();
     }, []);
-    
+
+    // Abandon any in-progress live-edit when the active device changes.
+    useEffect((): void => {
+        setEditingConfigId(null);
+    }, [activeDeviceId]);
+
+    // Tell the reducer which device is being live-edited, so readbacks won't overwrite its trackpad.
+    useEffect((): void => {
+        dispatch({ type: 'SET_LIVE_EDIT_DEVICE', payload: editingConfigId !== null ? activeDeviceId : null });
+    }, [editingConfigId, activeDeviceId, dispatch]);
+
     // Set active tab on initial display or when connected devices change
     useEffect((): void => {
         const checkDevices = (): void => {
@@ -178,11 +197,12 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                 payload: { deviceId: data.deviceId, config: data.config }
             });
         });
-        
+
         window.api.on("changeConnectDevice", (devices: Device[]): void => {
             dispatch({
                 type: "SET_DEVICES",
-                payload: devices
+                payload: devices,
+                fromReadback: true
             });
         });
         
@@ -202,23 +222,6 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
     // Toggle menu open/close
     const toggleMenu = (): void => {
         setMenuOpen(!menuOpen)
-    }
-
-    // Close menu
-    const closeMenu = (): void => {
-        setMenuOpen(false)
-    }
-
-    // Import function
-    const handleImport = async (): Promise<void> => {
-        await window.api.importFile()
-        closeMenu()
-    }
-
-    // Export function
-    const handleExport = async (): Promise<void> => {
-        await window.api.exportFile()
-        closeMenu()
     }
 
     // Startup setting change handler
@@ -265,7 +268,10 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
     // Get setting tabs for current device
     const getSettingTabs = (): Array<{ id: string; label: string }> => {
         const device = getActiveDevice();
-        return getSupportedSettingTabs(device, t, DeviceType);
+        const all = getSupportedSettingTabs(device, t, DeviceType);
+        if (!isConfigEditMode) return all;
+        const allowed = editingConfigId !== null ? CONFIG_EDIT_LIVE_TABS : CONFIG_EDIT_TABS;
+        return all.filter((tab): boolean => allowed.has(tab.id));
     }
 
     // Handler to close menu when clicking outside
@@ -288,15 +294,9 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
     const handleShowUpdatesNotifications = async (): Promise<void> => {
         try {
             const result = await window.api.getCachedNotifications();
-            if (result && result.length > 0) {
-                setUpdates(result);
-                setIsUpdatesNotificationModalOpen(true);
-                setMenuOpen(false);
-            } else {
-                // No updates to show
-                alert(t('updatesNotification.noNotification'));
-                setMenuOpen(false);
-            }
+            setUpdates(result ?? []);
+            setIsUpdatesNotificationModalOpen(true);
+            setMenuOpen(false);
         } catch (error) {
             console.error("Failed to load updates:", error);
         }
@@ -320,6 +320,8 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
 
     // Check if no devices at all (not even attempting to connect)
     const hasNoDevicesAtAll = !state.devices || state.devices.length === 0;
+
+    const settingTabs = getSettingTabs();
 
     return (
         <div className="bg-card-bg dark:bg-card-bg rounded-lg shadow-xs">
@@ -374,105 +376,107 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                     {/* Dropdown Menu */}
                     {menuOpen && (
                         <div className="absolute right-0 top-full mt-1 w-80 bg-white dark:bg-gray-800 shadow-lg rounded-md z-10 border border-gray-200 dark:border-gray-700 overflow-hidden">
-                            {/* Language Settings */}
-                            <div className="relative">
-                                <MenuItem onClick={(): void => setLanguageMenuOpen(!languageMenuOpen)}>
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className="mr-2">{t('settings.language')}</span>
-                                        <span className="text-sm text-gray-900 dark:text-gray-100 ml-auto font-medium">{availableLanguages[locale as keyof typeof availableLanguages]}</span>
+                            <>
+                                    {/* Language Settings */}
+                                    <div className="relative">
+                                        <MenuItem onClick={(): void => setLanguageMenuOpen(!languageMenuOpen)}>
+                                            <div className="flex justify-between items-center w-full">
+                                                <span className="mr-2">{t('settings.language')}</span>
+                                                <span className="text-sm text-gray-900 dark:text-gray-100 ml-auto font-medium">{availableLanguages[locale as keyof typeof availableLanguages]}</span>
+                                            </div>
+                                        </MenuItem>
+
+                                        {/* Language Submenu */}
+                                        {languageMenuOpen && (
+                                            <div className="absolute left-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 shadow-lg rounded-md z-20 border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                                {Object.entries(availableLanguages).map(([code, name]): JSX.Element => (
+                                                    <MenuItem
+                                                        key={code}
+                                                        onClick={(): void => handleLanguageChange(code)}
+                                                    >
+                                                        <div className="flex items-center">
+                                                            <span className={locale === code ? "font-semibold" : ""}>{name}</span>
+                                                            {locale === code && (
+                                                                <svg className="ml-2 h-4 w-4 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                                </svg>
+                                                            )}
+                                                        </div>
+                                                    </MenuItem>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                </MenuItem>
-                                
-                                {/* Language Submenu */}
-                                {languageMenuOpen && (
-                                    <div className="absolute left-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 shadow-lg rounded-md z-20 border border-gray-200 dark:border-gray-700 overflow-hidden">
-                                        {Object.entries(availableLanguages).map(([code, name]): JSX.Element => (
-                                            <MenuItem 
-                                                key={code}
-                                                onClick={(): void => handleLanguageChange(code)}
-                                            >
-                                                <div className="flex items-center">
-                                                    <span className={locale === code ? "font-semibold" : ""}>{name}</span>
-                                                    {locale === code && (
-                                                        <svg className="ml-2 h-4 w-4 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
-                                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                            </MenuItem>
-                                        ))}
+
+                                    {/* Import / Export */}
+                                    <MenuItem onClick={(): void => { void window.api.importFile(); setMenuOpen(false); }}>
+                                        {t('common.import')}
+                                    </MenuItem>
+                                    <MenuItem onClick={(): void => { void window.api.exportFile(); setMenuOpen(false); }}>
+                                        {t('common.export')}
+                                    </MenuItem>
+
+                                    <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+
+                                    {/* Polling interval settings */}
+                                    <div className="px-4 py-3">
+                                        <label className="block mb-1 text-sm font-medium text-gray-900 dark:text-gray-300">
+                                            {t('settings.pollingInterval')}
+                                            <span className="text-sm text-gray-500 dark:text-gray-400 ml-2 font-normal">
+                                                {pollingInterval} ms
+                                            </span>
+                                        </label>
+                                        <div className="mb-2">
+                                            <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                                <span>{t('settings.faster')}</span>
+                                                <span>{t('settings.slower')}</span>
+                                            </div>
+                                            <CustomSlider
+                                                id="settings-polling-interval"
+                                                value={pollingInterval}
+                                                min={200}
+                                                step={100}
+                                                max={2000}
+                                                onChange={(e): void => {
+                                                    const value = parseInt(e.target.value, 10);
+                                                    setPollingInterval(value);
+                                                    void window.api.saveStoreSetting('pollingInterval', value);
+                                                    window.requestAnimationFrame((): void => {
+                                                        const element = document.getElementById('settings-polling-interval');
+                                                        if (element) {
+                                                            element.dispatchEvent(new Event('update'));
+                                                        }
+                                                    });
+                                                }}
+                                            />
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                            
-                            <MenuItem onClick={handleImport}>{t('settings.import')}</MenuItem>
-                            <MenuItem onClick={handleExport}>{t('settings.export')}</MenuItem>
-                            <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                            
-                            {/* Polling interval settings */}
-                            <div className="px-4 py-3">
-                                <label className="block mb-1 text-sm font-medium text-gray-900 dark:text-gray-300">
-                                    {t('settings.pollingInterval')}
-                                    <span className="text-sm text-gray-500 dark:text-gray-400 ml-2 font-normal">
-                                        {pollingInterval} ms
-                                    </span>
-                                </label>
-                                <div className="mb-2">
-                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                        <span>{t('settings.faster')}</span>
-                                        <span>{t('settings.slower')}</span>
-                                    </div>
-                                    <CustomSlider
-                                        id="settings-polling-interval"
-                                        value={pollingInterval}
-                                        min={200}
-                                        step={100}
-                                        max={2000}
-                                        onChange={(e): void => {
-                                            const value = parseInt(e.target.value, 10);
-                                            // Immediately update local state
-                                            setPollingInterval(value);
-                                            
-                                            // Save settings to backend
-                                            void window.api.saveStoreSetting('pollingInterval', value);
-                                            
-                                            // Update slider UI
-                                            window.requestAnimationFrame((): void => {
-                                                const element = document.getElementById('settings-polling-interval');
-                                                if (element) {
-                                                    element.dispatchEvent(new Event('update'));
-                                                }
-                                            });
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                            <MenuItem 
-                                isToggle={true} 
-                                isChecked={traySettings.minimizeToTray}
-                                onClick={(): Promise<void> => handleTraySettingChange('minimizeToTray', !traySettings.minimizeToTray)}
-                            >
-                                {t('settings.minimizeToTray')}
-                            </MenuItem>
-                            <MenuItem
-                                isToggle={true}
-                                isChecked={traySettings.backgroundStart}
-                                onClick={(): Promise<void> => handleTraySettingChange('backgroundStart', !traySettings.backgroundStart)}
-                            >
-                                {t('settings.startInTray')}
-                            </MenuItem>
-                            <MenuItem
-                                isToggle={true}
-                                isChecked={openAtLogin}
-                                onClick={(): Promise<void> => handleOpenAtLoginChange(!openAtLogin)}
-                            >
-                                {t('settings.openAtLogin')}
-                            </MenuItem>
-                            <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                            <MenuItem onClick={handleShowUpdatesNotifications}>{t('updatesNotification.title')}</MenuItem>
-                            <MenuItem onClick={handleShowVersion}>{t('about.title')}</MenuItem>
+                                    <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                                    <MenuItem
+                                        isToggle={true}
+                                        isChecked={traySettings.minimizeToTray}
+                                        onClick={(): Promise<void> => handleTraySettingChange('minimizeToTray', !traySettings.minimizeToTray)}
+                                    >
+                                        {t('settings.minimizeToTray')}
+                                    </MenuItem>
+                                    <MenuItem
+                                        isToggle={true}
+                                        isChecked={traySettings.backgroundStart}
+                                        onClick={(): Promise<void> => handleTraySettingChange('backgroundStart', !traySettings.backgroundStart)}
+                                    >
+                                        {t('settings.startInTray')}
+                                    </MenuItem>
+                                    <MenuItem
+                                        isToggle={true}
+                                        isChecked={openAtLogin}
+                                        onClick={(): Promise<void> => handleOpenAtLoginChange(!openAtLogin)}
+                                    >
+                                        {t('settings.openAtLogin')}
+                                    </MenuItem>
+                                    <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                                    <MenuItem onClick={handleShowUpdatesNotifications}>{t('updatesNotification.title')}</MenuItem>
+                                    <MenuItem onClick={handleShowVersion}>{t('about.title')}</MenuItem>
+                            </>
                         </div>
                     )}
                 </div>
@@ -483,8 +487,8 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
             <div className="w-64 p-4 border-r border-gray-200 dark:border-gray-700">
                 <div className="space-y-1">
                     {connectedDevices.length > 0 ? (
-                        getSettingTabs().map((tab): JSX.Element => (
-                            <LeftMenuItem 
+                        settingTabs.map((tab): JSX.Element => (
+                            <LeftMenuItem
                                 key={tab.id}
                                 active={activeSettingTab === tab.id}
                                 onClick={(): void => handleSettingTabChange(tab.id)}
@@ -516,7 +520,7 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                                 {t('header.pleaseConnect')}
                             </p>
                         </div>
-                    ) : getSettingTabs().length === 0 ? (
+                    ) : settingTabs.length === 0 ? (
                         <div className="text-center text-gray-600 dark:text-gray-400">
                             <p className="text-lg mb-2">{t('header.initializingDevice')}</p>
                             <p className="text-sm mb-4">
@@ -536,10 +540,27 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                                 key={`${device.id}-content-${index}`} 
                                 className={activeDeviceId === device.id ? "block" : "hidden"}
                             >
-                                <SettingEdit 
-                                    device={device} 
+                                <SettingEdit
+                                    device={device}
                                     activeTab={activeSettingTab}
                                     setActiveTab={handleSettingTabChange}
+                                    isConfigEditMode={isConfigEditMode}
+                                    editingConfigId={editingConfigId}
+                                    onEditingChange={(configId): void => {
+                                        setEditingConfigId(configId);
+                                        // The Mouse/Scroll/Gesture tabs disappear when editing ends;
+                                        // fall back to the Layer tab if one of them is active.
+                                        if (configId === null && activeSettingTab !== 'layer') {
+                                            handleSettingTabChange('layer');
+                                        }
+                                    }}
+                                    onConfigEditModeChange={(enabled): void => {
+                                        setIsConfigEditMode(enabled);
+                                        setEditingConfigId(null);
+                                        if (enabled && activeSettingTab !== 'layer') {
+                                            handleSettingTabChange('layer');
+                                        }
+                                    }}
                                 />
                             </div>
                         ))
@@ -547,17 +568,18 @@ const SettingsContainer: React.FC<SettingsContainerProps> = ({ saveStatus }): JS
                 </div>
                 
                 {/* Save status display - positioned absolutely on top-right of content */}
-                {saveStatus?.visible && (
-                    <div className={`absolute -top-1.5 right-4 p-2 text-sm transition-opacity duration-300 z-10 ${
-                        saveStatus.success 
-                            ? "text-green-600 dark:text-green-400" 
-                            : "text-red-600 dark:text-red-400"
-                    }`}>
-                        {saveStatus.success 
-                            ? t('common.saveComplete') 
-                            : t('common.saveError')}
-                    </div>
-                )}
+                {saveStatus?.visible && ((): JSX.Element => {
+                    const status = saveStatus.pending
+                        ? { color: "text-blue-600 dark:text-blue-400", message: t('common.applying') }
+                        : saveStatus.success
+                            ? { color: "text-green-600 dark:text-green-400", message: saveStatus.isApply ? t('common.applyComplete') : t('common.saveComplete') }
+                            : { color: "text-red-600 dark:text-red-400", message: t('common.saveError') };
+                    return (
+                        <div className={`absolute -top-1.5 right-4 p-2 text-sm transition-opacity duration-300 z-10 ${status.color}`}>
+                            {status.message}
+                        </div>
+                    );
+                })()}
             </div>
             
             {/* Updates Notification Modal */}

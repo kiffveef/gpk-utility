@@ -6,8 +6,11 @@ const jaMessages: LocaleMessages = {
     export: 'エクスポート',
     saveComplete: '設定が正常に保存されました。',
     saveError: '設定の保存中にエラーが発生しました。',
+    applyComplete: '適用しました。',
+    applying: '適用中...',
     ok: 'OK',
-    delete: '削除'
+    delete: '削除',
+    deleteConfirm: '削除？'
   },
   about: {
     title: '概要',
@@ -74,11 +77,14 @@ const jaMessages: LocaleMessages = {
     layerNumber: 'レイヤー {{number}}',
     noMappingsEnabledHint: 'アプリケーションマッピングが設定されていません。マッピングを追加するには自動レイヤーを無効にしてください。',
     appLayerMappings: 'アプリケーションレイヤーマッピング',
+    appSelectHint: 'アプリケーションの選択一覧に使用したいものが表示されない場合は、一度対象のウィンドウをアクティブにしてから再度お試しください',
     addMapping: 'マッピングを追加',
     actions: 'アクション',
     noMappingsFound: 'マッピングが見つかりません。「マッピングを追加」をクリックして新しいマッピングを作成してください。',
     application: 'アプリケーション',
-    layer: 'レイヤー'
+    layer: 'レイヤー',
+    config: '設定',
+    configEditMode: 'コンフィグ編集モード'
   },
   timer: {
     title: 'ポモドーロタイマー',
@@ -134,6 +140,16 @@ const jaMessages: LocaleMessages = {
     stopBody: 'ポモドーロセッションが終了しました',
     enableDesktopNotifications: 'デスクトップ通知',
     enableHapticNotifications: '振動フィードバック通知'
+  },
+  data: {
+    usageHint: '名前を付けて作成後、編集ボタンを押して編集モードに切り替え、使用したいアプリを操作しながらパラメーターを調整してください',
+    create: '作成',
+    edit: '編集',
+    editing: '編集中',
+    overwriteConfirm: '上書き？',
+    noSaves: '保存済み設定がありません',
+    default: 'デフォルト',
+    view: 'ビュー'
   },
   led: {
     title: 'LED設定',

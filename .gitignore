@@ -8,7 +8,6 @@ yarn.lock
 !.github/workflows/
 .claude/
 dist-electron/
-docs/
 CLAUDE.md
 build.log
 

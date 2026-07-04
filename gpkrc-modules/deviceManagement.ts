@@ -27,6 +27,7 @@ import { injectTrackpadDependencies, receiveTrackpadSpecificConfig } from './tra
 import { injectLedDependencies, receiveLedConfig, receiveLedLayerConfig } from './ledConfig';
 import { injectWindowMonitoringDependencies, cleanupDeviceLayerTracking } from './windowMonitoring';
 import { stopDeviceHealthMonitoring } from './deviceHealth';
+import { getPendingWrite, clearAllPendingWrites } from './configSync';
 
 // Per-device write serialization: prevents concurrent HID writes to the same device.
 // Each device has a Promise chain; new writes wait for the previous to complete.
@@ -66,6 +67,27 @@ const activeTabPerDevice: Record<string, string> = {}
 const isEditingPomodoroPerDevice: Record<string, boolean> = {}
 let settingsStore: Store<StoreSchema> | null = null
 let mainWindow: ElectronWindow | null = null
+
+// Saved pomodoro fields the user edits, excluding runtime state (timer_active, phase)
+// that advances on the device while a timer runs. Used to shield a broadcast with a
+// pending desired value without clobbering live timer state. Only defined keys are
+// copied so the result satisfies exactOptionalPropertyTypes.
+// Byte-level counterpart: maskPomodoroRuntimeBits (ipcHandlers/configHandlers.ts) - keep in sync.
+const SAVED_POMODORO_KEYS: readonly (keyof PomodoroConfig)[] = [
+    'work_time', 'break_time', 'long_break_time', 'work_interval',
+    'work_hf_pattern', 'break_hf_pattern', 'continuous_mode',
+    'notify_haptic_enable', 'pomodoro_cycle'
+];
+const savedPomodoroFields = (pomo: PomodoroConfig): Partial<PomodoroConfig> => {
+    const fields: Partial<PomodoroConfig> = {};
+    for (const key of SAVED_POMODORO_KEYS) {
+        const value = pomo[key];
+        if (value !== undefined) {
+            (fields as Record<string, unknown>)[key] = value;
+        }
+    }
+    return fields;
+};
 
 const getKBD = async (device: GPKDevice, retryCount: number = 0): Promise<HID.Device | undefined> => {
     const maxRetries = 3;
@@ -251,7 +273,7 @@ const start = async (device: GPKDevice): Promise<string> => {
                         deviceStatusMap[id].initializing = false;
                         deviceStatusMap[id].connected = false;
                     }
-                    throw new Error(`Failed to initialize device ${id} after ${maxRetries} attempts: ${addError instanceof Error ? addError.message : String(addError)}`);
+                    throw new Error(`Failed to initialize device ${id} after ${maxRetries} attempts: ${addError instanceof Error ? addError.message : String(addError)}`, { cause: addError });
                 }
                 
                 // Wait before retry
@@ -305,7 +327,10 @@ const start = async (device: GPKDevice): Promise<string> => {
                 if (isEditingPomodoroPerDevice[newId!]) {
                     delete isEditingPomodoroPerDevice[newId!];
                 }
-                
+
+                // Drop any pending desired values so a reconnect is not shielded by stale data
+                clearAllPendingWrites(newId!);
+
                 // Clean up layer tracking
                 cleanupDeviceLayerTracking(newId!);
 
@@ -397,16 +422,22 @@ const start = async (device: GPKDevice): Promise<string> => {
                                     config: deviceStatusMap[id]!.config 
                                 });
                             } else if (receivedActionId === actionId.trackpadGetValue) {
-                                // Note: receiveTrackpadSpecificConfig function will be imported from trackpadConfig.js
-                                // Use imported receiveTrackpadSpecificConfig function
+                                // Keep deviceStatusMap truthful (the verified-save loop compares against it).
                                 deviceStatusMap[id]!.config.trackpad = receiveTrackpadSpecificConfig(Array.from(actualData));
+
+                                // Shield the UI broadcast with the desired value while a verified save
+                                // is in flight, so an in-flight read-back cannot revert it.
+                                const pendingTrackpad = getPendingWrite(id, 'trackpad');
+                                const broadcastConfig = pendingTrackpad
+                                    ? { ...deviceStatusMap[id]!.config, trackpad: receiveTrackpadSpecificConfig(pendingTrackpad) }
+                                    : deviceStatusMap[id]!.config;
 
                                 (global as { mainWindow?: ElectronWindow }).mainWindow!.webContents.send("deviceConnectionStateChanged", {
                                     deviceId: id,
                                     connected: deviceStatusMap[id]!.connected,
                                     gpkRCVersion: deviceStatusMap[id]!.gpkRCVersion,
                                     deviceType: deviceStatusMap[id]!.deviceType,
-                                    config: deviceStatusMap[id]!.config
+                                    config: broadcastConfig
                                 });
                             } else if (receivedActionId === actionId.pomodoroGetValue) {
                                 // Note: receivePomodoroConfig function will be imported from pomodoroConfig.js
@@ -428,11 +459,20 @@ const start = async (device: GPKDevice): Promise<string> => {
                                 if (notificationsEnabled !== undefined) {
                                     deviceStatusMap[id]!.config.pomodoro.notifications_enabled = notificationsEnabled;
                                 }
-                                
+
                                 const phaseChanged = oldPhase !== newPhase || oldTimerActive !== newTimerActive;
+
+                                // While a verified save is in flight, shield only the saved fields in the
+                                // broadcast; runtime state (timer_active/phase) stays from the device so
+                                // phase-change detection and notifications are unaffected.
+                                const pendingPomodoro = getPendingWrite(id, 'pomodoro');
+                                const broadcastPomodoro = pendingPomodoro
+                                    ? { ...deviceStatusMap[id]!.config.pomodoro, ...savedPomodoroFields(receivePomodoroConfig(pendingPomodoro).pomodoro) }
+                                    : deviceStatusMap[id]!.config.pomodoro;
+
                                 (global as { mainWindow?: ElectronWindow }).mainWindow!.webContents.send("deviceConnectionPomodoroPhaseChanged", {
                                     deviceId: id,
-                                    pomodoroConfig: deviceStatusMap[id]!.config.pomodoro,
+                                    pomodoroConfig: broadcastPomodoro,
                                     phaseChanged: phaseChanged,
                                 });
                             } else if (receivedActionId === actionId.pomodoroActiveGetValue) {
@@ -464,12 +504,19 @@ const start = async (device: GPKDevice): Promise<string> => {
                                 const receivedLedConfig = receiveLedConfig(Array.from(actualData));
                                 deviceStatusMap[id]!.config.led = receivedLedConfig.led;
 
+                                // Shield the UI broadcast with the desired LED colors while a verified
+                                // save is in flight; preserve layers (delivered by ledLayerGetValue).
+                                const pendingLed = getPendingWrite(id, 'led');
+                                const broadcastConfig = pendingLed
+                                    ? { ...deviceStatusMap[id]!.config, led: { ...receiveLedConfig(pendingLed).led, layers: deviceStatusMap[id]!.config.led?.layers } }
+                                    : deviceStatusMap[id]!.config;
+
                                 (global as { mainWindow?: ElectronWindow }).mainWindow!.webContents.send("deviceConnectionStateChanged", {
                                     deviceId: id,
                                     connected: deviceStatusMap[id]!.connected,
                                     gpkRCVersion: deviceStatusMap[id]!.gpkRCVersion,
                                     deviceType: deviceStatusMap[id]!.deviceType,
-                                    config: deviceStatusMap[id]!.config
+                                    config: broadcastConfig
                                 });
                             } else if (receivedActionId === actionId.ledLayerGetValue) {
                                 const receivedLedLayerConfig = receiveLedLayerConfig(Array.from(actualData));
@@ -493,12 +540,19 @@ const start = async (device: GPKDevice): Promise<string> => {
                                 // Mark LED initialization as complete
                                 deviceStatusMap[id]!.initializing = false;
 
+                                // Shield the UI broadcast with the desired layers while a verified
+                                // save is in flight.
+                                const pendingLedLayer = getPendingWrite(id, 'led_layer');
+                                const broadcastConfig = pendingLedLayer && deviceStatusMap[id]!.config.led
+                                    ? { ...deviceStatusMap[id]!.config, led: { ...deviceStatusMap[id]!.config.led, layers: receiveLedLayerConfig(pendingLedLayer).layers } }
+                                    : deviceStatusMap[id]!.config;
+
                                 (global as { mainWindow?: ElectronWindow }).mainWindow!.webContents.send("deviceConnectionStateChanged", {
                                     deviceId: id,
                                     connected: deviceStatusMap[id]!.connected,
                                     gpkRCVersion: deviceStatusMap[id]!.gpkRCVersion,
                                     deviceType: deviceStatusMap[id]!.deviceType,
-                                    config: deviceStatusMap[id]!.config,
+                                    config: broadcastConfig,
                                     initializing: deviceStatusMap[id]!.initializing
                                 });
                             }
@@ -595,7 +649,10 @@ const stop = async (device: GPKDevice): Promise<void> => {
     if (isEditingPomodoroPerDevice[id]) {
         delete isEditingPomodoroPerDevice[id];
     }
-    
+
+    // Drop any pending desired values so a reconnect is not shielded by stale data
+    clearAllPendingWrites(id);
+
     // Clean up layer tracking
     // Use imported cleanupDeviceLayerTracking function
     cleanupDeviceLayerTracking(id);
@@ -730,7 +787,7 @@ const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCoun
                     // Retry the command
                     return writeCommand(device, command, retryCount + 1);
                 } else {
-                    throw new Error("Failed to recreate HID instance");
+                    throw new Error("Failed to recreate HID instance", { cause: err });
                 }
             } catch (recreateError) {
                 console.error(`Failed to recreate HID instance for ${id}:`, recreateError);
