@@ -79,6 +79,24 @@ export const startKeyboardPolling = (keyboardSendLoop: () => Promise<void>): voi
     }, interval);
 };
 
+// Stop keyboard polling (used when the system suspends, to halt all HID I/O).
+export const stopKeyboardPolling = (): void => {
+    if (keyboardPollingInterval) {
+        clearInterval(keyboardPollingInterval);
+        keyboardPollingInterval = null;
+    }
+};
+
+// Mark every cached device disconnected after a resume from sleep. The pre-sleep HID
+// handles are stale; flagging connected=false makes keyboardSendLoop's existing
+// reconnection path tear each device down and reopen it (stop()/start()) on the next
+// poll cycle, so the full field reset lives in one place (see keyboardSendLoop).
+export const markAllDevicesForRestart = (): void => {
+    cachedDeviceRegistry.forEach((device): void => {
+        device.connected = false;
+    });
+};
+
 // Load store settings from main process
 export const loadStoreSettings = async (): Promise<void> => {
     try {
