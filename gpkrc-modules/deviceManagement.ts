@@ -28,6 +28,7 @@ import { injectLedDependencies, receiveLedConfig, receiveLedLayerConfig } from '
 import { injectWindowMonitoringDependencies, cleanupDeviceLayerTracking } from './windowMonitoring';
 import { stopDeviceHealthMonitoring } from './deviceHealth';
 import { getPendingWrite, clearAllPendingWrites } from './configSync';
+import { isSuspended } from './powerState';
 
 // Per-device write serialization: prevents concurrent HID writes to the same device.
 // Each device has a Promise chain; new writes wait for the previous to complete.
@@ -164,7 +165,13 @@ const setMainWindow = (window: ElectronWindow): void => {
     ;(global as { mainWindow?: ElectronWindow }).mainWindow = window
 }
 
-const addKbd = async (device: GPKDevice): Promise<string> => { 
+const addKbd = async (device: GPKDevice): Promise<string> => {
+    // Block opening HID handles while suspended: the USB device may be powered down
+    // or mid-re-enumeration, and opening it then can crash the process natively.
+    if (isSuspended()) {
+        throw new Error(`System suspended - device open paused for ${device.id}`);
+    }
+
     const d = await getKBD(device);
     // GPKDevice already has encoded ID, use it directly
     const id = device.id;
@@ -670,10 +677,14 @@ const _close = (id: string): boolean => {
     }
 
     try {
-         hidDeviceInstances[id]!.close()
+         hidDeviceInstances[id]!.removeAllListeners();
+         hidDeviceInstances[id]!.close();
     } catch (err) {
         console.error(`Error in _close for ${id}:`, err);
     }
+    // Null the handle so a stray write hits the "not connected" guard instead of a
+    // stale native handle, and a later stop()/close() cannot double-close it.
+    hidDeviceInstances[id] = null;
     // Clean up write chain entry for this device
     deviceWriteChain.delete(id);
     return true;

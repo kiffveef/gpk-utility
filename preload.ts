@@ -1,4 +1,6 @@
-import { loadStoreSettings, saveStoreSetting, startKeyboardPolling, cachedStoreSettings } from './preload/core';
+import { ipcRenderer } from 'electron';
+
+import { loadStoreSettings, saveStoreSetting, startKeyboardPolling, stopKeyboardPolling, markAllDevicesForRestart, cachedStoreSettings } from './preload/core';
 import { keyboardSendLoop, command } from './preload/device';
 import { setupEventListeners } from './preload/events';
 import { exposeAPI } from './preload/api';
@@ -34,6 +36,18 @@ document.addEventListener('DOMContentLoaded', async (): Promise<void> => {
 
 // Listen for polling interval changes
 window.addEventListener('restartPollingIntervals', (): void => {
+    startKeyboardPolling(keyboardSendLoop);
+});
+
+// System sleep: stop polling so no HID I/O runs while the machine is suspended.
+ipcRenderer.on('systemSuspend', (): void => {
+    stopKeyboardPolling();
+});
+
+// System resume: force every device through the stop()/start() reconnection path
+// with fresh handles, then restart polling.
+ipcRenderer.on('systemResume', (): void => {
+    markAllDevicesForRestart();
     startKeyboardPolling(keyboardSendLoop);
 });
 

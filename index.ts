@@ -1,7 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { app, BrowserWindow, Tray, Menu, nativeImage, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, dialog, powerMonitor } from "electron";
 import Store from 'electron-store';
 
 import {
@@ -12,6 +12,7 @@ import {
     writeCommand,
 } from './gpkrc';
 import { injectWindowMonitoringDependencies } from './gpkrc-modules/windowMonitoring';
+import { setSuspended } from './gpkrc-modules/powerState';
 import { setupIpcHandlers, setupIpcEvents, setMainWindow as setIpcMainWindow, setStore as setIpcStore } from './ipcHandlers';
 import enTranslations from './src/i18n/locales/en';
 import type { DeviceStatus } from './src/types/device';
@@ -28,6 +29,10 @@ if(process.platform==='linux') {
 
 // Memory optimization settings
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024'); // 1GB limit for balanced stability
+
+// Delay before touching HID devices after resuming from sleep, giving the OS time
+// to re-enumerate USB devices. Reconnecting too early hits half-initialized handles.
+const RESUME_STABILIZE_DELAY_MS = 3000;
 
 // Global error handlers to prevent app crashes
 process.on('uncaughtException', (error: Error): void => {
@@ -348,6 +353,75 @@ const createWindow = async (): Promise<void> => {
     });
 };
 
+// Power management: pause device I/O across sleep/resume so nothing touches a stale
+// HID handle whose USB endpoint was powered down (a native crash that bypasses the
+// uncaughtException handler). Following upstream's renderer-driven architecture, the
+// main process only flips the shared suspend flag, closes handles, and notifies the
+// renderer; the renderer stops its own polling and reconnects devices via stop()/start().
+let powerMonitoringRegistered = false;
+let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+const setupPowerMonitoring = (): void => {
+    if (powerMonitoringRegistered) {
+        return;
+    }
+    powerMonitoringRegistered = true;
+
+    powerMonitor.on('suspend', (): void => {
+        console.warn('System suspend: pausing device I/O');
+
+        // Cancel any pending resume so a stale timer cannot clear the flag mid-suspend.
+        if (resumeTimer) {
+            clearTimeout(resumeTimer);
+            resumeTimer = null;
+        }
+
+        // Flag first so addKbd() refuses to open handles during the transition, then
+        // close()+null all handles (also stops the device-health timer). Writes are
+        // safe once handles are null (they hit the existing not-connected guard).
+        setSuspended(true);
+
+        close().catch((error): void => {
+            console.error('Error closing devices during suspend:', {
+                error: error instanceof Error ? {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                } : error,
+                context: 'system-suspend',
+                timestamp: new Date().toISOString(),
+                platform: process.platform
+            });
+        });
+
+        // Tell the renderer to stop its polling loop.
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('systemSuspend');
+        }
+    });
+
+    powerMonitor.on('resume', (): void => {
+        console.warn('System resume: scheduling device reconnection');
+
+        if (resumeTimer) {
+            clearTimeout(resumeTimer);
+        }
+
+        // Wait for USB devices to re-enumerate before allowing HID access again.
+        resumeTimer = setTimeout((): void => {
+            resumeTimer = null;
+
+            // Clear the flag BEFORE notifying the renderer so its reconnection
+            // (stop()/start()) is allowed through the HID guards.
+            setSuspended(false);
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('systemResume');
+            }
+        }, RESUME_STABILIZE_DELAY_MS);
+    });
+};
+
 const doubleBoot = app.requestSingleInstanceLock();
 if (!doubleBoot) app.quit();
 
@@ -374,6 +448,9 @@ app.on('ready', async (): Promise<void> => {
 
     createTray();
     await createWindow();
+
+    // Register sleep/resume handlers to pause device I/O across suspend.
+    setupPowerMonitoring();
 
     // Setup IPC handlers and events
     setupIpcHandlers();
