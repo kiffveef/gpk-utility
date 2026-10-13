@@ -14,7 +14,9 @@
     "check": "npm run type-check && npm run lint",
     "check:force": "npm run type-check; npm run lint",
     "upgrade": "npx npm-check-updates -u",
-    "dist:win": "npm run build:win && electron-builder -w --publish never",
+    "postinstall": "patch-package",
+    "rebuild:node-hid": "electron-rebuild -f -w node-hid",
+    "dist:win": "npm run build:win && npm run rebuild:node-hid && electron-builder -w --publish never",
     "dist:mac": "npm run build && electron-builder -m --publish never",
     "dist:linux": "npm run build && electron-builder -l --publish never"
   },
@@ -28,6 +30,7 @@
   },
   "type": "module",
   "devDependencies": {
+    "@electron/rebuild": "^4.2.1",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.0",
     "@tailwindcss/vite": "^4.3.0",
@@ -46,6 +49,7 @@
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import-x": "^4.15.1",
     "eslint-plugin-unused-imports": "^4.4.1",
+    "patch-package": "^8.0.1",
     "postcss": "^8.5.14",
     "postcss-import": "^16.1.1",
     "tailwindcss": "^4.3.0",

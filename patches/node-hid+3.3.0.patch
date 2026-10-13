@@ -1,0 +1,24 @@
+diff --git a/node_modules/node-hid/hidapi/windows/hid.c b/node_modules/node-hid/hidapi/windows/hid.c
+index e878547..a704cea 100644
+--- a/node_modules/node-hid/hidapi/windows/hid.c
++++ b/node_modules/node-hid/hidapi/windows/hid.c
+@@ -1407,10 +1407,18 @@ int HID_API_EXPORT HID_API_CALL hid_get_input_report(hid_device *dev, unsigned c
+ 
+ void HID_API_EXPORT HID_API_CALL hid_close(hid_device *dev)
+ {
++	DWORD bytes_read = 0;
++
+ 	if (!dev)
+ 		return;
+ 
+-	CancelIo(dev->device_handle);
++	/* CancelIo() only cancels I/O issued by the calling thread. The overlapped
++	   ReadFile() left pending by hid_read_timeout() was issued on a different
++	   (worker) thread, so it would survive and complete into freed memory.
++	   Cancel it on every thread and wait for completion before freeing. */
++	CancelIoEx(dev->device_handle, NULL);
++	if (dev->read_pending)
++		GetOverlappedResult(dev->device_handle, &dev->ol, &bytes_read, TRUE/*wait*/);
+ 	free_hid_device(dev);
+ }
+ 

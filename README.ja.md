@@ -48,6 +48,7 @@ KDE環境で同等の機能を実現するには、KWinスクリプト等を用�
   - [Application Settings](#application-settings)
 - [使用方法](#使用方法)
 - [実装ガイド](#実装ガイド)
+- [ソースからのビルド](#ソースからのビルド)
 - [開発者サポート](#開発者サポート)
 - [ライセンス](#ライセンス)
 
@@ -182,6 +183,20 @@ Long Break - BLUE
 - [付録B: device_type 別必須機能マトリクス](./docs/features/vial_firmware_appendix_b_device_matrix.ja.md)
 - [付録C: ホスト UI ↔ フィールド対応表](./docs/features/vial_firmware_appendix_c_host_mapping.ja.md)
 - [付録D: 実装チェックリスト](./docs/features/vial_firmware_appendix_d_checklist.ja.md)
+
+## ソースからのビルド
+
+この fork は `node-hid` に同梱された `hidapi` にパッチを当てています(`patches/` を参照)。接続中のデバイスのハンドルを閉じるたびに Windows でヒープ破損(例外コード `c0000374`)が起きてアプリが落ちる問題の修正です。パッチは `npm install` 時に patch-package が自動で適用しますが、修正をバイナリに反映するにはネイティブモジュールの再ビルドが必要です。
+
+```bash
+npm install
+npm run rebuild:node-hid   # Windows では Python3 と Visual Studio Build Tools(C++ ワークロード)が必要
+npm run dist:win           # パッケージング前に rebuild:node-hid を自動実行
+```
+
+再ビルドを省略した場合や失敗した場合、node-hid は未修正のプリビルドバイナリを黙って使います。パッケージング前に `node_modules/node-hid/build/Release/HID.node` が存在することを確認してください。
+
+---
 
 ## 開発者サポート
 

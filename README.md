@@ -50,6 +50,7 @@ We currently do not have access to a KDE environment and therefore do not provid
 - [Other Features](#other-features)
 - [Usage](#usage)
 - [Implementation Guide](#implementation-guide)
+- [Building from Source](#building-from-source)
 - [Developer Support](#developer-support)
 - [License](#license)
 
@@ -204,6 +205,20 @@ Configure LED colors for various device states and layers
 - [Appendix B: Device Type Matrix](./docs/features/vial_firmware_appendix_b_device_matrix.md)
 - [Appendix C: Host UI ↔ Field Mapping](./docs/features/vial_firmware_appendix_c_host_mapping.md)
 - [Appendix D: Implementation Checklist](./docs/features/vial_firmware_appendix_d_checklist.md)
+
+## Building from Source
+
+This fork patches the `hidapi` sources bundled with `node-hid` (see `patches/`) to fix a Windows heap corruption that killed the app whenever a live device handle was closed (exception code `c0000374`). `npm install` applies the patch automatically via patch-package, but the native module has to be rebuilt so the fix is actually compiled in:
+
+```bash
+npm install
+npm run rebuild:node-hid   # Windows: needs Python3 and Visual Studio Build Tools (C++ workload)
+npm run dist:win           # runs rebuild:node-hid before packaging
+```
+
+If the rebuild is skipped or fails, node-hid silently falls back to its unpatched prebuilt binary. Before packaging, confirm that `node_modules/node-hid/build/Release/HID.node` exists.
+
+---
 
 ## Developer Support
 

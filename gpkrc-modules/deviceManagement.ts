@@ -14,7 +14,7 @@ import type { HIDDeviceInstance } from '../src/types/api-types';
 import type { StoreSchema } from '../src/types/store';
 
 import { DeviceType, stringToDeviceType } from './deviceTypes';
-import { commandId, actionId, encodeDeviceId, DEFAULT_USAGE, PACKET_PADDING } from './communication';
+import { commandId, actionId, encodeDeviceId, DEFAULT_USAGE, PACKET_PADDING, commandToBytes } from './communication';
 import {
     startDeviceHealthMonitoring,
     isDeviceHealthMonitoringActive,
@@ -27,12 +27,75 @@ import { injectTrackpadDependencies, receiveTrackpadSpecificConfig } from './tra
 import { injectLedDependencies, receiveLedConfig, receiveLedLayerConfig } from './ledConfig';
 import { injectWindowMonitoringDependencies, cleanupDeviceLayerTracking } from './windowMonitoring';
 import { stopDeviceHealthMonitoring } from './deviceHealth';
-import { getPendingWrite, clearAllPendingWrites } from './configSync';
+import { getPendingWrite, clearAllPendingWrites, sleep } from './configSync';
 import { isSuspended } from './powerState';
 
 // Per-device write serialization: prevents concurrent HID writes to the same device.
 // Each device has a Promise chain; new writes wait for the previous to complete.
 const deviceWriteChain = new Map<string, Promise<void>>();
+
+// How long closeHidInstance() waits for the device to answer its drain request.
+const HID_CLOSE_DRAIN_TIMEOUT_MS = 500;
+const HID_CLOSE_DRAIN_POLL_MS = 20;
+// Pause before retrying a failed write on the same handle (transient busy errors clear quickly).
+const WRITE_RETRY_DELAY_MS = 200;
+
+// node-hid keeps its read-loop state in a private field; we only ever read it.
+interface HidReadLoopState {
+    _paused?: boolean;
+}
+
+// Close a HID handle without leaving an overlapped read pending on it.
+//
+// node-hid reads on a libuv worker via hid_read_timeout(), which on Windows leaves an
+// overlapped ReadFile pending across timeouts. hidapi's hid_close() only cancels I/O of
+// the calling thread, so closing while that read is pending frees memory the kernel later
+// writes into (heap corruption, exit code c0000374). We patch hidapi as well
+// (patches/node-hid+*.patch), but this path keeps the app safe even on the unpatched
+// prebuilt binary:
+//   1. drop the 'data' listeners so node-hid pauses its loop after the next completed read
+//   2. ask the device for its info so that read completes promptly
+//   3. close only once the loop reports paused; otherwise leak the handle
+//      (a leaked handle is harmless, a corrupted heap is not)
+const closeHidInstance = async (id: string, reason: string): Promise<void> => {
+    const instance = hidDeviceInstances[id];
+    if (!instance) {
+        return;
+    }
+
+    // Detach first so no new write can reach this handle while it drains.
+    hidDeviceInstances[id] = null;
+    deviceWriteChain.delete(id);
+
+    instance.removeAllListeners('data');
+    instance.removeAllListeners('error');
+    // A read error (device gone) also pauses the loop; swallow it so it cannot become an
+    // unhandled 'error' event.
+    instance.on('error', (): void => {});
+
+    try {
+        instance.write(commandToBytes({ id: commandId.customGetValue, data: [actionId.deviceGetValue] }));
+    } catch {
+        // Device already gone: the pending read fails on its own and pauses the loop.
+    }
+
+    const readLoop = instance as unknown as HidReadLoopState;
+    const deadline = Date.now() + HID_CLOSE_DRAIN_TIMEOUT_MS;
+    while (readLoop._paused !== true && Date.now() < deadline) {
+        await sleep(HID_CLOSE_DRAIN_POLL_MS);
+    }
+
+    if (readLoop._paused !== true) {
+        console.warn(`HID handle for ${id} still has a read pending after ${HID_CLOSE_DRAIN_TIMEOUT_MS}ms (${reason}); leaking it instead of closing`);
+        return;
+    }
+
+    try {
+        instance.close();
+    } catch (err) {
+        console.error(`Error closing HID instance for ${id} (${reason}):`, err);
+    }
+};
 
 interface Command {
     id: number;
@@ -182,15 +245,7 @@ const addKbd = async (device: GPKDevice): Promise<string> => {
     }
     
     // Clean up any existing instance before creating a new one
-    if (hidDeviceInstances[id]) {
-        try {
-            hidDeviceInstances[id]!.removeAllListeners();
-            hidDeviceInstances[id]!.close();
-        } catch (closeError) {
-            console.error(`Error closing existing HID instance for ${id}:`, closeError);
-        }
-        hidDeviceInstances[id] = null;
-    }
+    await closeHidInstance(id, 'reopen');
     
     try {
         hidDeviceInstances[id] = new HID.HID(d.path);
@@ -310,16 +365,9 @@ const start = async (device: GPKDevice): Promise<string> => {
             hidDeviceInstances[newId!]!.on('error', (err: Error): void => {
                 console.error(`Device error: ${newId}`, err);
                 
-                // Completely remove all traces of the device (treat as fresh connection next time)
-                try {
-                    if (hidDeviceInstances[newId!]) {
-                        hidDeviceInstances[newId!]!.removeAllListeners();
-                        hidDeviceInstances[newId!]!.close();
-                    }
-                } catch (closeError) {
-                    console.error(`Error closing HID instance after error for ${newId}:`, closeError);
-                }
-                hidDeviceInstances[newId!] = null;
+                // Completely remove all traces of the device (treat as fresh connection next time).
+                // node-hid pauses its read loop before emitting 'error', so this closes right away.
+                void closeHidInstance(newId!, 'device-error');
                 
                 // Completely remove device status
                 if (deviceStatusMap[newId!]) {
@@ -633,16 +681,8 @@ const stop = async (device: GPKDevice): Promise<void> => {
     // Device already has encoded ID, use it directly
     const id = device.id;
 
-    if (hidDeviceInstances[id]) {
-        try {
-            hidDeviceInstances[id]!.removeAllListeners();
-            hidDeviceInstances[id]!.close();
-        } catch (error) {
-            console.error(`Error during device stop for ${id}:`, error);
-        }
-        hidDeviceInstances[id] = null;
-    }
-    
+    await closeHidInstance(id, 'stop');
+
     // Completely remove device status (treat as new device next time)
     if (deviceStatusMap[id]) {
         delete deviceStatusMap[id];
@@ -671,25 +711,6 @@ const stop = async (device: GPKDevice): Promise<void> => {
     deviceWriteChain.delete(id);
 }
 
-const _close = (id: string): boolean => {
-    if (!hidDeviceInstances[id]) {
-        return false;
-    }
-
-    try {
-         hidDeviceInstances[id]!.removeAllListeners();
-         hidDeviceInstances[id]!.close();
-    } catch (err) {
-        console.error(`Error in _close for ${id}:`, err);
-    }
-    // Null the handle so a stray write hits the "not connected" guard instead of a
-    // stale native handle, and a later stop()/close() cannot double-close it.
-    hidDeviceInstances[id] = null;
-    // Clean up write chain entry for this device
-    deviceWriteChain.delete(id);
-    return true;
-}
-
 const close = async (): Promise<void> => {
     // Note: stopDeviceHealthMonitoring will be called from deviceHealth.js
     // Use imported stopDeviceHealthMonitoring function
@@ -699,9 +720,7 @@ const close = async (): Promise<void> => {
         return;
     }
     
-    Object.keys(hidDeviceInstances).forEach((id): void => {
-        _close(id);
-    });
+    await Promise.all(Object.keys(hidDeviceInstances).map((id): Promise<void> => closeHidInstance(id, 'close-all')));
 }
 
 const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCount: number = 0): Promise<CommandResult> => {
@@ -747,34 +766,34 @@ const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCoun
         return { success: true };
     } catch (err) {
         console.error(`Error writing command to device ${id} (attempt ${retryCount + 1}):`, err);
-        
-        // If write fails, mark device as potentially disconnected
+
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // node-hid reports "Cannot write to hid device" (capitalized); compare case-insensitively.
+        const lowerMessage = errorMessage.toLowerCase();
+        const isRecoverableError = lowerMessage.includes("cannot write to hid device") ||
+                                   lowerMessage.includes("could not read from hid device") ||
+                                   lowerMessage.includes("hid device disconnected") ||
+                                   lowerMessage.includes("device or resource busy");
+
+        // First failure: retry on the same handle. Transient busy errors (another process touching
+        // the device) clear on their own, and every reopen closes a live handle.
+        if (isRecoverableError && retryCount === 0) {
+            await sleep(WRITE_RETRY_DELAY_MS);
+            return _writeCommandImpl(device, command, retryCount + 1);
+        }
+
+        // Repeated failure: mark device as potentially disconnected
         if (deviceStatusMap[id]) {
             deviceStatusMap[id]!.connected = false;
         }
-        
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        // Check if this is a recoverable error and we haven't exceeded retries
-        const isRecoverableError = errorMessage.includes("cannot write to hid device") ||
-                                   errorMessage.includes("could not read from HID device") ||
-                                   errorMessage.includes("HID device disconnected") ||
-                                   errorMessage.includes("Device or resource busy");
-        
-        if (isRecoverableError && retryCount < maxRetries) {            
-            // Clean up current HID instance
-            if (hidDeviceInstances[id]) {
-                try {
-                    hidDeviceInstances[id]!.removeAllListeners();
-                    hidDeviceInstances[id]!.close();
-                } catch (closeError) {
-                    console.error(`Error closing invalid HID instance for ${id}:`, closeError);
-                }
-                hidDeviceInstances[id] = null;
-            }
-            
+
+        if (isRecoverableError && retryCount < maxRetries) {
+            // The handle itself is suspect now: drop it and reopen
+            await closeHidInstance(id, 'write-recovery');
+
             // Wait before retry
-            await new Promise<void>((resolve): ReturnType<typeof setTimeout> => setTimeout(resolve, 500 * (retryCount + 1)));
-            
+            await sleep(500 * (retryCount + 1));
+
             // Try to recreate HID instance
             try {
                 // Convert HIDDevice to GPKDevice for addKbd
@@ -793,10 +812,11 @@ const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCoun
                     }
                     
                     // Wait a bit for device to stabilize
-                    await new Promise<void>((resolve): ReturnType<typeof setTimeout> => setTimeout(resolve, 200));
-                    
-                    // Retry the command
-                    return writeCommand(device, command, retryCount + 1);
+                    await sleep(200);
+
+                    // Retry directly: going back through writeCommand() would queue behind this very
+                    // chain entry, which only releases when we return (deadlock).
+                    return _writeCommandImpl(device, command, retryCount + 1);
                 } else {
                     throw new Error("Failed to recreate HID instance", { cause: err });
                 }
@@ -804,19 +824,11 @@ const _writeCommandImpl = async (device: GPKDevice, command: number[], retryCoun
                 console.error(`Failed to recreate HID instance for ${id}:`, recreateError);
                 return { success: false, error: `Write error after recovery attempt: ${errorMessage}` };
             }
-        } else {
-            // Clean up invalid HID instance for non-recoverable errors or after max retries
-            if (hidDeviceInstances[id]) {
-                try {
-                    hidDeviceInstances[id]!.removeAllListeners();
-                    hidDeviceInstances[id]!.close();
-                } catch (closeError) {
-                    console.error(`Error closing invalid HID instance for ${id}:`, closeError);
-                }
-                hidDeviceInstances[id] = null;
-            }
         }
-        
+
+        // Non-recoverable error or retries exhausted: drop the handle
+        await closeHidInstance(id, 'write-failed');
+
         return { success: false, error: `Write error: ${errorMessage}` };
     }
 }
@@ -887,6 +899,7 @@ export {
     isEditingPomodoroPerDevice,
     settingsStore,
     mainWindow,
+    closeHidInstance,
     getKBD, 
     getKBDList, 
     setActiveTab, 

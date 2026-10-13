@@ -32,7 +32,8 @@ import {
     writeCommand, 
     getConnectKbd,
     initializeDependencies,
-    updateAutoLayerSettings
+    updateAutoLayerSettings,
+    closeHidInstance
 } from './gpkrc-modules/deviceManagement';
 import { 
     joinScrollTerm,
@@ -116,15 +117,7 @@ const getDeviceConfig = async (device: Device, retryCount: number = 0): Promise<
         } catch (hidCheckError) {
             console.warn(`HID instance check failed for ${id}:`, hidCheckError);
             // Clean up and throw error to trigger retry
-            if (hidDeviceInstances[id]) {
-                try {
-                    hidDeviceInstances[id].removeAllListeners();
-                    hidDeviceInstances[id].close();
-                } catch {
-                    // Ignore cleanup errors during initialization failure
-                }
-                hidDeviceInstances[id] = null;
-            }
+            await closeHidInstance(id, 'config-check-failed');
             throw new Error(`HID instance not ready for ${id}: ${(hidCheckError as Error).message}`, { cause: hidCheckError });
         }
         
