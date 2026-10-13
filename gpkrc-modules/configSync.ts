@@ -20,7 +20,7 @@ const pendingWrites = new Map<string, Map<ConfigSection, PendingEntry>>();
 // only clears the entry it registered (and not a newer save's desired value).
 let pendingWriteSeq = 0;
 
-const sleep = (ms: number): Promise<void> =>
+export const sleep = (ms: number): Promise<void> =>
     new Promise<void>((resolve): ReturnType<typeof setTimeout> => setTimeout(resolve, ms));
 
 const bytesEqual = (a: number[] | undefined, b: number[] | undefined): boolean => {

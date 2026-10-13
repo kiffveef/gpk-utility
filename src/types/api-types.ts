@@ -69,7 +69,7 @@ export interface HIDDeviceInstance {
     release?: number;
     usagePage?: number;
     usage?: number;
-    closed?: boolean;
+    _closed?: boolean;  // node-hid's private flag set once close() has run
     removeAllListeners?: () => void;
     close?: () => void;
 }

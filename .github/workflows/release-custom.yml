@@ -1,0 +1,62 @@
+# Fork-only rolling prerelease.
+# Runs only for the custom branch: main tracks upstream and must never publish from here.
+name: Release Custom
+
+on:
+  push:
+    branches: [custom]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-custom
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    # Guard manual runs too: workflow_dispatch can be started from any ref.
+    if: github.ref == 'refs/heads/custom'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # postinstall applies patches/ (hidapi hid_close fix); dist:win rebuilds node-hid so it is compiled in.
+      - run: npm ci
+
+      - name: Build and package
+        run: npm run dist:win
+
+      - name: Verify patched node-hid build is bundled
+        shell: bash
+        run: test -f node_modules/node-hid/build/Release/HID.node
+
+      - name: Publish rolling prerelease (custom-latest)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%d)
+          SUBJECT=$(git log -1 --format=%s)
+
+          # Recreate the release each time so stale assets from older versions do not linger.
+          gh release delete custom-latest --yes --cleanup-tag || true
+          git tag -f custom-latest
+          git push -f origin custom-latest
+
+          ASSETS=(dist/*.exe dist/*.blockmap)
+          for f in dist/*.yml; do [ -e "$f" ] && ASSETS+=("$f"); done
+
+          gh release create custom-latest \
+            --prerelease \
+            --title "Custom build ${DATE} (${SHA})" \
+            --notes "Latest build of the custom branch. Commit: ${SHA} - ${SUBJECT}" \
+            "${ASSETS[@]}"
