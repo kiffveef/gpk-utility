@@ -109,7 +109,7 @@ const getDeviceConfig = async (device: Device, retryCount: number = 0): Promise<
             }
             
             // Test if HID instance is responsive
-            if ((hidDeviceInstances[id] as HID.HID & { closed?: boolean }).closed) {
+            if ((hidDeviceInstances[id] as HID.HID & { _closed?: boolean })._closed) {
                 console.warn(`HID instance for ${id} is marked as closed`);
                 throw new Error(`HID instance for ${id} is closed`);
             }

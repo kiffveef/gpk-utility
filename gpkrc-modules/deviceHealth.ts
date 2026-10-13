@@ -82,7 +82,7 @@ export const checkDeviceHealth = async (): Promise<void> => {
             }
             
             // Check if HID instance exists but is marked as closed
-            if (hidInstance && hidInstance.closed) {
+            if (hidInstance && hidInstance._closed) {
                 console.warn(`Device ${deviceId} HID instance is closed, attempting recovery...`);
                 
                 // Mark device as disconnected

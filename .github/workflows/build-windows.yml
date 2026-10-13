@@ -28,6 +28,7 @@ jobs:
           npx vite build
           New-Item -ItemType Directory -Force -Path dist-electron
           Copy-Item -Path dist/* -Destination dist-electron/ -Recurse
+          npm run rebuild:node-hid
           npx electron-builder -w
         shell: pwsh
         env:
