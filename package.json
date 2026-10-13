@@ -15,7 +15,7 @@
     "check:force": "npm run type-check; npm run lint",
     "upgrade": "npx npm-check-updates -u",
     "postinstall": "patch-package",
-    "rebuild:node-hid": "electron-rebuild -f -w node-hid",
+    "rebuild:node-hid": "electron-rebuild -f -o node-hid",
     "dist:win": "npm run build:win && npm run rebuild:node-hid && electron-builder -w --publish never",
     "dist:mac": "npm run build && electron-builder -m --publish never",
     "dist:linux": "npm run build && electron-builder -l --publish never"
