@@ -53,7 +53,8 @@ jobs:
           git push -f origin custom-latest
 
           ASSETS=(dist/*.exe dist/*.blockmap)
-          for f in dist/*.yml; do [ -e "$f" ] && ASSETS+=("$f"); done
+          # Only the updater manifest; electron-builder also drops builder-debug.yml in dist/.
+          for f in dist/latest*.yml; do [ -e "$f" ] && ASSETS+=("$f"); done
 
           gh release create custom-latest \
             --prerelease \
