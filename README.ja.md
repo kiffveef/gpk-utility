@@ -196,6 +196,8 @@ npm run dist:win           # パッケージング前に rebuild:node-hid を自
 
 再ビルドを省略した場合や失敗した場合、node-hid は未修正のプリビルドバイナリを黙って使います。パッケージング前に `node_modules/node-hid/build/Release/HID.node` が存在することを確認してください。
 
+インストーラーを得るためにローカルでビルドする必要はありません。`custom` ブランチへの push のたびに `Release Custom` ワークフローがパッチ済みモジュールで Windows 版をビルドし、この fork の Releases ページに `custom-latest` プレリリースとして公開します(毎回上書き)。
+
 ---
 
 ## 開発者サポート

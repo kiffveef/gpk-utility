@@ -218,6 +218,8 @@ npm run dist:win           # runs rebuild:node-hid before packaging
 
 If the rebuild is skipped or fails, node-hid silently falls back to its unpatched prebuilt binary. Before packaging, confirm that `node_modules/node-hid/build/Release/HID.node` exists.
 
+You do not need to build locally to get an installer: every push to the `custom` branch runs the `Release Custom` workflow, which builds Windows with the patched module and publishes it as the rolling `custom-latest` prerelease on this fork's Releases page.
+
 ---
 
 ## Developer Support
